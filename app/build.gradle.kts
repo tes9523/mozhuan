@@ -5,12 +5,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// Release 签名信息全部来自环境变量（由 GitHub Actions 注入）。
-// 本地不配置时 release 构建退化为未签名 APK，不影响 assembleDebug 与日常开发。
-val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
-val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
-val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
-val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+// Release 签名：CI 中 keystore 解码到 app/keystore.jks，环境变量由 GitHub Actions 注入。
+// 本地无 keystore.jks 时 release 构建退化为未签名 APK，不影响 assembleDebug 与日常开发。
+val releaseStoreFile = file("keystore.jks")
+val releaseStorePassword = System.getenv("KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("KEYSTORE_ALIAS")
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
 
 android {
     namespace = "com.mozhuan"
@@ -27,9 +27,9 @@ android {
     }
 
     signingConfigs {
-        if (!releaseStoreFile.isNullOrBlank()) {
+        if (releaseStoreFile.exists()) {
             create("release") {
-                storeFile = file(releaseStoreFile)
+                storeFile = releaseStoreFile
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
