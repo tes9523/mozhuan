@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Release 签名信息全部来自环境变量（由 GitHub Actions 注入）。
+// 本地不配置时 release 构建退化为未签名 APK，不影响 assembleDebug 与日常开发。
+val releaseStoreFile = System.getenv("RELEASE_STORE_FILE")
+val releaseStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+
 android {
     namespace = "com.mozhuan"
     compileSdk = 35
@@ -18,18 +25,22 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
     signingConfigs {
-        create("release") {
-            storeFile = file("keystore.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("KEYSTORE_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
-            storeType = "PKCS12"
+        if (!releaseStoreFile.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // 有签名配置则自动签名，没有则输出未签名 APK。
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
