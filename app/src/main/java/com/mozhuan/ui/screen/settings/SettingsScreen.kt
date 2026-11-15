@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -43,6 +44,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.business.model.ThemeMode
+import com.mozhuan.net.AiBackendType
 import com.mozhuan.system.permission.NotificationPermission
 import com.mozhuan.system.power.BatteryOptimizationHelper
 
@@ -56,6 +58,9 @@ fun SettingsScreen(
     val storageName by viewModel.storageName.collectAsStateWithLifecycle()
     val storageReady by viewModel.storageReady.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val aiBackend by viewModel.aiBackend.collectAsStateWithLifecycle()
+    val backendBaseUrl by viewModel.backendBaseUrl.collectAsStateWithLifecycle()
+    val backendApiKey by viewModel.backendApiKey.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -114,6 +119,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
+            // ── 外观 ──────────────────────────────────────────────
             SectionTitle("外观")
             ThemeOption("跟随系统", ThemeMode.SYSTEM, themeMode) {
                 viewModel.setThemeMode(it)
@@ -127,6 +133,46 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // ── AI 后端 ───────────────────────────────────────────
+            SectionTitle("AI 后端")
+            Text(
+                text = "选择当前生效的后端，填入对应地址和密钥",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BackendOption("OpenMinis", AiBackendType.OPEN_MINIS, aiBackend) {
+                viewModel.setAiBackend(it)
+            }
+            BackendOption("OpenWrite", AiBackendType.OPEN_WRITE, aiBackend) {
+                viewModel.setAiBackend(it)
+            }
+
+            // 当前后端的地址和密钥输入框
+            OutlinedTextField(
+                value = backendBaseUrl,
+                onValueChange = { viewModel.setBackendBaseUrl(it) },
+                label = { Text("后端地址") },
+                placeholder = { Text("https://api.example.com") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+            OutlinedTextField(
+                value = backendApiKey,
+                onValueChange = { viewModel.setBackendApiKey(it) },
+                label = { Text("API 密钥") },
+                placeholder = { Text("sk-...") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ── 书稿存储 ──────────────────────────────────────────
             SectionTitle("书稿存储")
             ListItem(
                 headlineContent = { Text("存储目录") },
@@ -157,6 +203,7 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // ── 后台与通知 ────────────────────────────────────────
             SectionTitle("后台与通知")
             ListItem(
                 headlineContent = { Text("通知权限") },
@@ -222,11 +269,12 @@ fun SettingsScreen(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // ── 关于 ──────────────────────────────────────────────
             SectionTitle("关于")
             ListItem(
                 headlineContent = { Text("墨撰") },
                 supportingContent = {
-                    Text("版本 0.2.0 · 纯本地书稿模块，未启用任何 AI 能力")
+                    Text("版本 0.3.0 · 阶段2 网络适配层")
                 },
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -259,6 +307,29 @@ private fun ThemeOption(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = mode == current, onClick = { onSelect(mode) })
+        Text(
+            text = label,
+            modifier = Modifier.padding(start = 8.dp),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
+}
+
+@Composable
+private fun BackendOption(
+    label: String,
+    type: AiBackendType,
+    current: AiBackendType,
+    onSelect: (AiBackendType) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSelect(type) }
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = type == current, onClick = { onSelect(type) })
         Text(
             text = label,
             modifier = Modifier.padding(start = 8.dp),
