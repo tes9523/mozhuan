@@ -24,7 +24,7 @@ android {
             storePassword = System.getenv("KEYSTORE_PASSWORD")
             keyAlias = System.getenv("KEYSTORE_ALIAS")
             keyPassword = System.getenv("KEY_PASSWORD")
-            storeType "PKCS12"
+            storeType = "PKCS12"
         }
     }
     buildTypes {
