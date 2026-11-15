@@ -6,6 +6,7 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.3.0 | 阶段2 网络适配层 | [mozhuan-v0.3.0.apk](https://github.com/tes9523/mozhuan/releases/download/v0.3.0/mozhuan-v0.3.0.apk) |
 | v0.1.0 | 阶段1 底部导航框架 | [mozhuan-v0.1.0.apk](https://github.com/tes9523/mozhuan/releases/download/v0.1.0/mozhuan-v0.1.0.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
