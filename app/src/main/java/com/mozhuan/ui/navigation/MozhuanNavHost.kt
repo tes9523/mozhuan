@@ -11,20 +11,21 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.mozhuan.AppContainer
-import com.mozhuan.ui.screen.about.AboutScreen
-import com.mozhuan.ui.screen.demo.DemoScreen
-import com.mozhuan.ui.screen.editor.EditorScreen
-import com.mozhuan.ui.screen.editor.EditorViewModel
-import com.mozhuan.ui.screen.library.LibraryScreen
-import com.mozhuan.ui.screen.library.LibraryViewModel
+import com.mozhuan.ui.screen.books.BookDetailScreen
+import com.mozhuan.ui.screen.books.BookDetailViewModel
+import com.mozhuan.ui.screen.books.BookListScreen
+import com.mozhuan.ui.screen.books.BookListViewModel
+import com.mozhuan.ui.screen.books.ChapterEditorScreen
+import com.mozhuan.ui.screen.books.ChapterEditorViewModel
+import com.mozhuan.ui.screen.chat.AiChatScreen
+import com.mozhuan.ui.screen.chat.AiChatViewModel
 import com.mozhuan.ui.screen.settings.SettingsScreen
 import com.mozhuan.ui.screen.settings.SettingsViewModel
+import com.mozhuan.ui.screen.skills.SkillManagementScreen
+import com.mozhuan.ui.screen.skills.SkillManagementViewModel
 
 /**
- * 全局导航图。
- *
- * 顶层页面（首页 / 演示页 / 关于页）与全屏页面（编辑器 / 设置）放在同一个 NavHost 中，
- * 底部导航栏由外层根据当前路由决定是否显示。
+ * 全局导航图：三个顶层 Tab + 书稿详情 / 章节编辑 / 技能管理。
  */
 @Composable
 fun MozhuanNavHost(
@@ -34,73 +35,132 @@ fun MozhuanNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Routes.HOME,
+        startDestination = Routes.CHAT,
         modifier = modifier,
     ) {
-        // 首页：阶段0 的书稿列表，功能保持不变。
-        composable(Routes.HOME) {
-            val libraryViewModel: LibraryViewModel = viewModel(
+        // ── Tab1：AI 对话（全局 / 绑定书稿） ───────────────────────
+        composable(
+            route = Routes.CHAT,
+            arguments = listOf(
+                navArgument(Routes.ARG_BOOK_ID) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
+            val bookId = entry.arguments?.getString(Routes.ARG_BOOK_ID)?.takeIf { it.isNotBlank() }
+            val chatViewModel: AiChatViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {
-                        LibraryViewModel(
+                        AiChatViewModel(
+                            bookId = bookId,
                             bookRepository = container.bookRepository,
+                            skillRepository = container.skillRepository,
                             settingsRepository = container.settingsRepository,
+                            aiClient = container.aiClient,
                         )
                     }
                 },
             )
-            LibraryScreen(
-                viewModel = libraryViewModel,
-                onOpenBook = { bookId -> navController.navigate(Routes.editor(bookId)) },
+            AiChatScreen(
+                viewModel = chatViewModel,
+                onBack = if (bookId == null) null else ({ navController.popBackStack() }),
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
 
-        // 演示页：仅包含基础点击反馈，无业务逻辑。
-        composable(Routes.DEMO) {
-            DemoScreen()
-        }
-
-        // 关于页：静态应用信息 + 全局设置入口。
-        composable(Routes.ABOUT) {
-            AboutScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
-        }
-
-        // 书稿编辑器（全屏）。
-        composable(
-            route = Routes.EDITOR,
-            arguments = listOf(navArgument(Routes.ARG_BOOK_ID) { type = NavType.StringType }),
-        ) { entry ->
-            val bookId = entry.arguments?.getString(Routes.ARG_BOOK_ID).orEmpty()
-            val editorViewModel: EditorViewModel = viewModel(
+        // ── Tab2：书稿列表 ─────────────────────────────────────────
+        composable(Routes.BOOKS) {
+            val listViewModel: BookListViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer {
-                        EditorViewModel(
-                            bookId = bookId,
-                            repository = container.bookRepository,
-                            persistScope = container.applicationScope,
-                        )
-                    }
+                    initializer { BookListViewModel(container.bookRepository) }
                 },
             )
-            EditorScreen(
-                viewModel = editorViewModel,
-                onBack = { navController.popBackStack() },
+            BookListScreen(
+                viewModel = listViewModel,
+                onOpenBook = { bookId -> navController.navigate(Routes.bookDetail(bookId)) },
             )
         }
 
-        // 全局设置（全屏）。
+        // ── Tab3：设置 ─────────────────────────────────────────────
         composable(Routes.SETTINGS) {
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer {
-                        SettingsViewModel(container.settingsRepository)
-                    }
+                    initializer { SettingsViewModel(container.settingsRepository) }
                 },
             )
             SettingsScreen(
                 viewModel = settingsViewModel,
+                onOpenSkills = { navController.navigate(Routes.SKILLS) },
+            )
+        }
+
+        // ── 技能管理 ───────────────────────────────────────────────
+        composable(Routes.SKILLS) {
+            val skillsViewModel: SkillManagementViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { SkillManagementViewModel(container.skillRepository) }
+                },
+            )
+            SkillManagementScreen(
+                viewModel = skillsViewModel,
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        // ── 书稿详情 ───────────────────────────────────────────────
+        composable(
+            route = Routes.BOOK_DETAIL,
+            arguments = listOf(navArgument(Routes.ARG_BOOK_ID) { type = NavType.StringType }),
+        ) { entry ->
+            val bookId = entry.arguments?.getString(Routes.ARG_BOOK_ID).orEmpty()
+            val detailViewModel: BookDetailViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        BookDetailViewModel(
+                            bookId = bookId,
+                            bookRepository = container.bookRepository,
+                            skillRepository = container.skillRepository,
+                        )
+                    }
+                },
+            )
+            BookDetailScreen(
+                viewModel = detailViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenChat = { navController.navigate(Routes.chat(bookId)) },
+                onOpenChapter = { chapterId -> navController.navigate(Routes.chapter(bookId, chapterId)) },
+            )
+        }
+
+        // ── 章节编辑 ───────────────────────────────────────────────
+        composable(
+            route = Routes.CHAPTER,
+            arguments = listOf(
+                navArgument(Routes.ARG_BOOK_ID) { type = NavType.StringType },
+                navArgument(Routes.ARG_CHAPTER_ID) { type = NavType.StringType },
+            ),
+        ) { entry ->
+            val bookId = entry.arguments?.getString(Routes.ARG_BOOK_ID).orEmpty()
+            val chapterId = entry.arguments?.getString(Routes.ARG_CHAPTER_ID).orEmpty()
+            val editorViewModel: ChapterEditorViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        ChapterEditorViewModel(
+                            bookId = bookId,
+                            chapterId = chapterId,
+                            bookRepository = container.bookRepository,
+                            skillRepository = container.skillRepository,
+                            settingsRepository = container.settingsRepository,
+                            aiClient = container.aiClient,
+                        )
+                    }
+                },
+            )
+            ChapterEditorScreen(
+                viewModel = editorViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
     }

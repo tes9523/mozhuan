@@ -1,18 +1,21 @@
 package com.mozhuan
 
 import android.app.Application
-import com.mozhuan.business.repository.BookRepository
-import com.mozhuan.business.repository.SettingsRepository
-import com.mozhuan.storage.db.AppDatabase
+import android.content.Context
+import com.mozhuan.data.repository.BookRepository
+import com.mozhuan.data.repository.SettingsRepository
+import com.mozhuan.data.repository.SkillRepository
+import com.mozhuan.net.AiClient
 import com.mozhuan.storage.preferences.AppPreferences
-import com.mozhuan.storage.saf.SafDocumentStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import android.content.Context
 
 /**
- * 手动依赖容器。后续 llm 模块接入时在此注册独立 provider，不污染本地书稿模块。
+ * 手动依赖容器。
+ *
+ * 本阶段书稿 / 章节 / 技能数据均为内存仓库；
+ * 后续接入持久化或 LLM 底座时在此扩展，不污染 UI 层。
  */
 class AppContainer(context: Context) {
 
@@ -20,20 +23,15 @@ class AppContainer(context: Context) {
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val database = AppDatabase.build(applicationContext)
-
     val preferences = AppPreferences(applicationContext)
 
-    val safDocumentStore = SafDocumentStore(applicationContext, preferences)
+    val settingsRepository = SettingsRepository(preferences)
 
-    val bookRepository = BookRepository(
-        database = database,
-        bookDao = database.bookDao(),
-        chapterDao = database.chapterDao(),
-        safStore = safDocumentStore,
-    )
+    val bookRepository = BookRepository()
 
-    val settingsRepository = SettingsRepository(preferences, safDocumentStore)
+    val skillRepository = SkillRepository()
+
+    val aiClient = AiClient()
 }
 
 class MozhuanApplication : Application() {

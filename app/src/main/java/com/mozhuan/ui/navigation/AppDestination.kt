@@ -1,46 +1,57 @@
 package com.mozhuan.ui.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * 全局路由表：所有路由字符串集中在这里维护，页面之间不允许硬编码路由。
+ * 全局路由表：集中维护，页面之间不硬编码路由。
  */
 object Routes {
-    /** 首页：复用阶段0 的书稿列表。 */
-    const val HOME = "home"
+    /** Tab1：AI 对话。bookId 为空表示全局对话，非空表示绑定书稿的专属对话。 */
+    const val CHAT = "chat?bookId={bookId}"
 
-    /** 演示页：阶段1 的基础交互演示。 */
-    const val DEMO = "demo"
+    /** Tab2：书稿列表。 */
+    const val BOOKS = "books"
 
-    /** 关于页：应用信息与设置入口。 */
-    const val ABOUT = "about"
-
-    /** 编辑器：全屏页面，不显示底部导航。 */
-    const val EDITOR = "editor/{bookId}"
-
-    /** 全局设置：全屏页面，不显示底部导航。 */
+    /** Tab3：设置。 */
     const val SETTINGS = "settings"
 
-    const val ARG_BOOK_ID = "bookId"
+    /** 技能管理（全屏）。 */
+    const val SKILLS = "skills"
 
-    /** 构造带参数的书稿编辑器路由。 */
-    fun editor(bookId: String): String = "editor/$bookId"
+    /** 书稿详情（全屏）。 */
+    const val BOOK_DETAIL = "book/{bookId}"
+
+    /** 章节编辑（全屏）。 */
+    const val CHAPTER = "chapter/{bookId}/{chapterId}"
+
+    const val ARG_BOOK_ID = "bookId"
+    const val ARG_CHAPTER_ID = "chapterId"
+
+    fun chat(bookId: String? = null): String =
+        if (bookId.isNullOrBlank()) "chat" else "chat?bookId=$bookId"
+
+    fun bookDetail(bookId: String): String = "book/$bookId"
+
+    fun chapter(bookId: String, chapterId: String): String = "chapter/$bookId/$chapterId"
 }
 
 /**
- * 底部导航栏的顶层目的地（3 个 Tab）。
- * 只有这些路由会显示底部导航栏。
+ * 底部导航的三个顶层目的地。
+ *
+ * @property route 路由表中的模式（用于判断当前选中项）
+ * @property navRoute 实际跳转用的具体路由
  */
 enum class TopLevelDestination(
     val route: String,
+    val navRoute: String,
     val label: String,
     val icon: ImageVector,
 ) {
-    HOME(Routes.HOME, "首页", Icons.Filled.Home),
-    DEMO(Routes.DEMO, "演示页", Icons.Filled.PlayArrow),
-    ABOUT(Routes.ABOUT, "关于页", Icons.Filled.Info),
+    CHAT(Routes.CHAT, "chat", "AI对话", Icons.Filled.Email),
+    BOOKS(Routes.BOOKS, Routes.BOOKS, "书稿", Icons.AutoMirrored.Filled.List),
+    SETTINGS(Routes.SETTINGS, Routes.SETTINGS, "设置", Icons.Filled.Settings),
 }

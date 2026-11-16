@@ -1,7 +1,5 @@
 package com.mozhuan.ui.screen.settings
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,275 +7,129 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mozhuan.business.model.ThemeMode
-import com.mozhuan.net.AiBackendType
-import com.mozhuan.system.permission.NotificationPermission
-import com.mozhuan.system.power.BatteryOptimizationHelper
+import com.mozhuan.data.model.ThemeMode
 
+/**
+ * 设置页：外观主题、统一 API 配置、全局技能管理入口。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onBack: () -> Unit,
+    onOpenSkills: () -> Unit,
 ) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val storageName by viewModel.storageName.collectAsStateWithLifecycle()
-    val storageReady by viewModel.storageReady.collectAsStateWithLifecycle()
-    val message by viewModel.message.collectAsStateWithLifecycle()
-    val aiBackend by viewModel.aiBackend.collectAsStateWithLifecycle()
-    val backendBaseUrl by viewModel.backendBaseUrl.collectAsStateWithLifecycle()
-    val backendApiKey by viewModel.backendApiKey.collectAsStateWithLifecycle()
+    val apiBaseUrl by viewModel.apiBaseUrl.collectAsStateWithLifecycle()
+    val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
+    val modelName by viewModel.modelName.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    var notificationGranted by remember { mutableStateOf(NotificationPermission.isGranted(context)) }
-    var batteryIgnoring by remember {
-        mutableStateOf(BatteryOptimizationHelper.isIgnoringOptimizations(context))
-    }
-
-    val storageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree(),
-    ) { uri ->
-        if (uri != null) viewModel.selectStorage(uri)
-    }
-    val notificationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
     ) {
-        notificationGranted = NotificationPermission.isGranted(context)
-    }
+        TopAppBar(title = { Text("设置") })
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                notificationGranted = NotificationPermission.isGranted(context)
-                batteryIgnoring = BatteryOptimizationHelper.isIgnoringOptimizations(context)
-                viewModel.refreshStorage()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    LaunchedEffect(message) {
-        val text = message ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(text)
-        viewModel.clearMessage()
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                title = { Text("设置") },
-            )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
-            // ── 外观 ──────────────────────────────────────────────
+            // ── 外观 ─────────────────────────────────────────────
             SectionTitle("外观")
-            ThemeOption("跟随系统", ThemeMode.SYSTEM, themeMode) {
-                viewModel.setThemeMode(it)
-            }
-            ThemeOption("浅色", ThemeMode.LIGHT, themeMode) {
-                viewModel.setThemeMode(it)
-            }
-            ThemeOption("深色", ThemeMode.DARK, themeMode) {
-                viewModel.setThemeMode(it)
-            }
+            ThemeOption("跟随系统", ThemeMode.SYSTEM, themeMode, viewModel::setThemeMode)
+            ThemeOption("浅色", ThemeMode.LIGHT, themeMode, viewModel::setThemeMode)
+            ThemeOption("深色", ThemeMode.DARK, themeMode, viewModel::setThemeMode)
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ── AI 后端 ───────────────────────────────────────────
-            SectionTitle("AI 后端")
+            // ── API 配置 ─────────────────────────────────────────
+            SectionTitle("API 配置")
             Text(
-                text = "选择当前生效的后端，填入对应地址和密钥",
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                text = "全局仅一套后端配置，AI 对话与章节续写共用；通过技能 Prompt 区分任务。",
+                modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            BackendOption("OpenMinis", AiBackendType.OPEN_MINIS, aiBackend) {
-                viewModel.setAiBackend(it)
-            }
-            BackendOption("OpenWrite", AiBackendType.OPEN_WRITE, aiBackend) {
-                viewModel.setAiBackend(it)
-            }
-
-            // 当前后端的地址和密钥输入框
             OutlinedTextField(
-                value = backendBaseUrl,
-                onValueChange = { viewModel.setBackendBaseUrl(it) },
-                label = { Text("后端地址") },
-                placeholder = { Text("https://api.example.com") },
-                singleLine = true,
+                value = apiBaseUrl,
+                onValueChange = viewModel::setApiBaseUrl,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                label = { Text("接口地址") },
+                placeholder = { Text("https://api.example.com/v1") },
+                singleLine = true,
             )
             OutlinedTextField(
-                value = backendApiKey,
-                onValueChange = { viewModel.setBackendApiKey(it) },
-                label = { Text("API 密钥") },
+                value = apiKey,
+                onValueChange = viewModel::setApiKey,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                label = { Text("API Key") },
                 placeholder = { Text("sk-...") },
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+            )
+            OutlinedTextField(
+                value = modelName,
+                onValueChange = viewModel::setModelName,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                label = { Text("模型名称") },
+                placeholder = { Text("gpt-4o-mini / deepseek-chat …") },
+                singleLine = true,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ── 书稿存储 ──────────────────────────────────────────
-            SectionTitle("书稿存储")
+            // ── 技能管理 ─────────────────────────────────────────
+            SectionTitle("技能")
             ListItem(
-                headlineContent = { Text("存储目录") },
-                supportingContent = {
-                    Column {
-                        Text(storageName ?: "未选择")
-                        if (storageName != null && !storageReady) {
-                            Text(
-                                text = "目录权限已失效，请重新授权",
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                },
+                headlineContent = { Text("全局技能管理") },
+                supportingContent = { Text("查看、新增、编辑自定义全局技能") },
                 trailingContent = {
-                    TextButton(onClick = { storageLauncher.launch(null) }) {
-                        Text(if (storageName == null) "选择" else "更换")
-                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                 },
-            )
-            Text(
-                text = "只会将书稿的 Markdown 文件写入该目录；书名、章节索引等元数据保存在应用数据库中。",
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clickable(onClick = onOpenSkills),
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ── 后台与通知 ────────────────────────────────────────
-            SectionTitle("后台与通知")
-            ListItem(
-                headlineContent = { Text("通知权限") },
-                supportingContent = {
-                    Text(
-                        if (notificationGranted) {
-                            "已授权，编辑时显示常驻写作通知"
-                        } else {
-                            "未授权，通知栏不显示写作状态"
-                        },
-                    )
-                },
-                trailingContent = {
-                    TextButton(
-                        onClick = {
-                            runCatching {
-                                notificationLauncher.launch(NotificationPermission.settingsIntent(context))
-                            }
-                        },
-                    ) {
-                        Text("去设置")
-                    }
-                },
-            )
-            ListItem(
-                headlineContent = { Text("电池优化") },
-                supportingContent = {
-                    Text(
-                        if (batteryIgnoring) {
-                            "已允许后台运行"
-                        } else {
-                            "可能被系统限制后台，建议关闭优化"
-                        },
-                    )
-                },
-                trailingContent = {
-                    TextButton(
-                        onClick = {
-                            val intent = if (batteryIgnoring) {
-                                BatteryOptimizationHelper.appDetailsIntent(context)
-                            } else {
-                                BatteryOptimizationHelper.requestIgnoreIntent(context)
-                            }
-                            runCatching { context.startActivity(intent) }.onFailure {
-                                runCatching {
-                                    context.startActivity(
-                                        BatteryOptimizationHelper.appDetailsIntent(context),
-                                    )
-                                }
-                            }
-                        },
-                    ) {
-                        Text("去设置")
-                    }
-                },
-            )
-            Text(
-                text = "编辑书稿时会启动前台服务并常驻通知，以减少切到后台后被系统回收的概率。",
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // ── 关于 ──────────────────────────────────────────────
+            // ── 关于 ─────────────────────────────────────────────
             SectionTitle("关于")
             ListItem(
                 headlineContent = { Text("墨撰") },
                 supportingContent = {
-                    Text("版本 0.3.0 · 阶段2 网络适配层")
+                    Text("版本 0.4.0 · 统一单后端 + 书稿与技能底座")
                 },
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -286,7 +138,7 @@ fun SettingsScreen(
 private fun SectionTitle(text: String) {
     Text(
         text = text,
-        modifier = Modifier.padding(start = 20.dp, top = 12.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
@@ -307,29 +159,6 @@ private fun ThemeOption(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RadioButton(selected = mode == current, onClick = { onSelect(mode) })
-        Text(
-            text = label,
-            modifier = Modifier.padding(start = 8.dp),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
-}
-
-@Composable
-private fun BackendOption(
-    label: String,
-    type: AiBackendType,
-    current: AiBackendType,
-    onSelect: (AiBackendType) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onSelect(type) }
-            .padding(horizontal = 12.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(selected = type == current, onClick = { onSelect(type) })
         Text(
             text = label,
             modifier = Modifier.padding(start = 8.dp),

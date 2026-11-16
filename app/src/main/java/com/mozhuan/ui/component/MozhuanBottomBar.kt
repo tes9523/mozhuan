@@ -12,10 +12,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.mozhuan.ui.navigation.TopLevelDestination
 
 /**
- * 全局底部导航栏：首页 / 演示页 / 关于页。
+ * 全局底部导航栏：AI对话 / 书稿 / 设置。
  *
- * 切换 Tab 时使用 saveState + restoreState 保存并恢复各页面状态，
- * 避免重复创建页面或丢失书稿列表滚动位置。
+ * 切换 Tab 时保存并恢复各页面状态，避免重复创建页面或丢失列表位置。
  */
 @Composable
 fun MozhuanBottomBar(navController: NavHostController) {
@@ -27,14 +26,11 @@ fun MozhuanBottomBar(navController: NavHostController) {
             NavigationBarItem(
                 selected = currentRoute == destination.route,
                 onClick = {
-                    navController.navigate(destination.route) {
-                        // 回到导航图起点，避免在返回栈中堆积多个顶层页面。
+                    navController.navigate(destination.navRoute) {
                         popUpTo(navController.graph.findStartDestination().id) {
                             saveState = true
                         }
-                        // 重复点击同一个 Tab 时不重新创建页面。
                         launchSingleTop = true
-                        // 切回之前访问过的 Tab 时恢复其状态。
                         restoreState = true
                     }
                 },
