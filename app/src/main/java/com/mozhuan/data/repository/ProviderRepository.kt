@@ -5,8 +5,11 @@ import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ModelGroup
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
+import com.mozhuan.data.model.ThinkingLevel
 import com.mozhuan.net.AiClient
+import com.mozhuan.net.StreamChunk
 import com.mozhuan.net.model.AiMessage
+import kotlinx.coroutines.CancellationException
 import com.mozhuan.storage.preferences.AppPreferences
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
@@ -194,21 +197,34 @@ class ProviderRepository(
         }
     }
 
-    /** 测试服务商连接，使用给定模型或该服务商第一个模型。 */
-    suspend fun testProvider(provider: ProviderInstance, modelId: String? = null): Result<String> {
-        val resolvedModel = modelId?.trim()?.takeIf { it.isNotEmpty() }
-            ?: entriesFor(provider.id).firstOrNull()?.modelId
-            ?: provider.type.defaultModels.firstOrNull()
-            ?: ""
-        if (resolvedModel.isEmpty()) {
-            return Result.failure(Exception("请先选择或填写模型名称"))
+    /** 快速测试与正式对话共用流式请求路径，并保留所选模型的完整配置。 */
+    suspend fun testProvider(provider: ProviderInstance, entry: ModelEntry? = null): Result<String> {
+        val resolved = entry
+            ?: entries.value.firstOrNull {
+                it.id == preferences.selectedEntryId.value && it.providerId == provider.id
+            }
+            ?: entriesFor(provider.id).firstOrNull()
+            ?: provider.type.defaultModels.firstOrNull()?.let {
+                ModelEntry(providerId = provider.id, modelId = it)
+            }
+            ?: return Result.failure(Exception("请先选择或填写模型名称"))
+        val testEntry = resolved.copy(maxTokens = 128, thinkingLevel = ThinkingLevel.OFF)
+        return try {
+            val reply = StringBuilder()
+            aiClient.streamChat(
+                provider = provider,
+                entry = testEntry,
+                messages = listOf(AiMessage(role = "user", content = "请只回复：OK")),
+                includeSampling = false,
+            ).collect { chunk ->
+                if (chunk is StreamChunk.Text) reply.append(chunk.text)
+            }
+            Result.success(reply.toString().trim().ifBlank { "连接成功" })
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
         }
-        val entry = ModelEntry(providerId = provider.id, modelId = resolvedModel)
-        return aiClient.complete(
-            provider = provider,
-            entry = entry,
-            messages = listOf(AiMessage(role = "user", content = "请只回复：OK")),
-        ).map { it.ifBlank { "连接成功" } }
     }
 
     private fun ensureSelection() {

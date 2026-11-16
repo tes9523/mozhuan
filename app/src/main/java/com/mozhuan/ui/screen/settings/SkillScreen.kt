@@ -167,7 +167,7 @@ fun SkillScreen(
         )
 
         Text(
-            text = "每个技能是一个 SKILL.md，存放在 /var/minis/skills；开启后会自动合并进系统提示词。",
+            text = "每个技能是一个 SKILL.md；开启后仅注入名称、描述与路径，AI 按需读取正文和附件。",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -186,7 +186,7 @@ fun SkillScreen(
             } else {
                 item {
                     SettingsGroup(
-                        footer = "点击技能可编辑名称、描述与正文；导入的技能默认停用。",
+                        footer = "内置 skill-creator 只可查看、启停和导出；其他技能可编辑，导入后默认停用。",
                     ) {
                         skills.forEachIndexed { index, skill ->
                             SkillRow(
@@ -265,6 +265,7 @@ private fun SkillEditorContent(
     var body by remember(skill?.id) { mutableStateOf(skill?.body.orEmpty()) }
     var enabled by remember(skill?.id) { mutableStateOf(skill?.enabled ?: true) }
     var showDelete by remember { mutableStateOf(false) }
+    val isBuiltIn = skill?.isBuiltIn == true
 
     val context = LocalContext.current
     val exportLauncher = rememberLauncherForActivityResult(
@@ -286,7 +287,7 @@ private fun SkillEditorContent(
             .imePadding(),
     ) {
         TopAppBar(
-            title = { Text(if (skill == null) "新增技能" else "编辑技能") },
+            title = { Text(if (skill == null) "新增技能" else if (isBuiltIn) "内置技能（只读）" else "编辑技能") },
             navigationIcon = {
                 IconButton(onClick = onClose) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -310,12 +311,21 @@ private fun SkillEditorContent(
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
         ) {
+            if (isBuiltIn) {
+                Text(
+                    text = "skill-creator 由应用内置，内容与文件会在扫描时自动恢复，不可修改或删除。",
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("技能名称") },
                 singleLine = true,
+                readOnly = isBuiltIn,
             )
             OutlinedTextField(
                 value = description,
@@ -326,6 +336,7 @@ private fun SkillEditorContent(
                 label = { Text("一句话描述") },
                 placeholder = { Text("例如：生成更有画面感的场景描写") },
                 singleLine = true,
+                readOnly = isBuiltIn,
             )
             Row(
                 modifier = Modifier
@@ -346,7 +357,13 @@ private fun SkillEditorContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Switch(checked = enabled, onCheckedChange = { enabled = it })
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { checked ->
+                        enabled = checked
+                        if (isBuiltIn) skill?.let { viewModel.setEnabled(it.id, checked) }
+                    },
+                )
             }
             OutlinedTextField(
                 value = body,
@@ -357,25 +374,28 @@ private fun SkillEditorContent(
                     .padding(top = 10.dp),
                 label = { Text("技能正文（Markdown 提示词）") },
                 placeholder = { Text("写入希望 AI 遵循的写作规则或流程…") },
+                readOnly = isBuiltIn,
                 textStyle = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = FontFamily.Monospace,
                 ),
                 minLines = 8,
             )
-            Button(
-                onClick = {
-                    viewModel.saveSkill(skill?.id, name, description, body, enabled)
-                    Toast.makeText(context, "技能已保存", Toast.LENGTH_SHORT).show()
-                    onClose()
-                },
-                enabled = name.isNotBlank() && body.isNotBlank(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-            ) {
-                Text("保存技能")
+            if (!isBuiltIn) {
+                Button(
+                    onClick = {
+                        viewModel.saveSkill(skill?.id, name, description, body, enabled)
+                        Toast.makeText(context, "技能已保存", Toast.LENGTH_SHORT).show()
+                        onClose()
+                    },
+                    enabled = name.isNotBlank() && body.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                ) {
+                    Text("保存技能")
+                }
             }
-            if (skill != null) {
+            if (skill != null && !isBuiltIn) {
                 TextButton(
                     onClick = { showDelete = true },
                     modifier = Modifier

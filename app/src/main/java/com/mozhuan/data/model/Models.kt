@@ -146,6 +146,22 @@ data class ProviderInstance(
         get() = label.trim().ifBlank { type.displayName }
 }
 
+/** 模型思考强度；wireValue 为 OpenAI 系请求使用的 effort。 */
+enum class ThinkingLevel(val label: String, val wireValue: String?) {
+    OFF("关闭", null),
+    LOW("低", "low"),
+    MEDIUM("中", "medium"),
+    HIGH("高", "high"),
+    XHIGH("超高", "xhigh"),
+    MAX("最大", "max"),
+    ULTRA("极致", "max");
+
+    companion object {
+        fun from(name: String): ThinkingLevel =
+            entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: OFF
+    }
+}
+
 /**
  * 某个服务商下的模型条目，参数独立保存（对齐 OpenMinis 的 per-model overrides）。
  *
@@ -161,6 +177,7 @@ data class ModelEntry(
     val contextTurns: Int = 10,
     val temperature: Float = 0.8f,
     val topP: Float = 1.0f,
+    val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
     val isCustom: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
@@ -252,6 +269,13 @@ data class Skill(
 ) {
     val displayDescription: String
         get() = description.trim().ifBlank { body.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty() }
+
+    val isBuiltIn: Boolean
+        get() = id == BUILT_IN_SKILL_CREATOR_ID
+
+    companion object {
+        const val BUILT_IN_SKILL_CREATOR_ID = "skill-creator"
+    }
 }
 
 /** 一次请求的 Token 用量。 */

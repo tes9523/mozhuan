@@ -65,7 +65,7 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "read_file",
-                    description = "读取书稿、技能或记忆目录中的文本文件，用于查阅设定、参考素材或已保存的记忆。",
+                    description = "读取书稿、技能或记忆目录中的文本文件。任务匹配某个已启用技能时，用此工具按 path 加载其 SKILL.md；也可查阅设定、素材或记忆。",
                     parameters = parameters(
                         "path" to stringProperty("文件路径，例如 book/第一章.md、skills/xxx/SKILL.md"),
                     ),

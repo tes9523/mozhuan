@@ -29,12 +29,12 @@ class SkillRepository(
 
     init {
         migrateLegacySkills()
-        installBundledSkills()
         reload()
     }
 
     fun reload() {
         if (!skillsDir.exists()) skillsDir.mkdirs()
+        installBundledSkills()
         val disabled = preferences.disabledSkillIds.value
         val scanned = skillsDir.listFiles()
             .orEmpty()
@@ -60,6 +60,7 @@ class SkillRepository(
         enabled: Boolean,
     ): Skill {
         val skillId = id ?: UUID.randomUUID().toString()
+        require(skillId != Skill.BUILT_IN_SKILL_CREATOR_ID) { "内置 skill-creator 不可修改" }
         val dir = File(skillsDir, skillId)
         dir.mkdirs()
         val now = System.currentTimeMillis()
@@ -79,6 +80,7 @@ class SkillRepository(
     }
 
     fun deleteSkill(skillId: String) {
+        require(skillId != Skill.BUILT_IN_SKILL_CREATOR_ID) { "内置 skill-creator 不可删除" }
         File(skillsDir, skillId).deleteRecursively()
         preferences.setSkillEnabled(skillId, true)
         reload()
@@ -178,47 +180,25 @@ class SkillRepository(
         skill
     }
 
-    /** 内置 skill-creator：目录不存在则创建，版本低于内置版本时覆盖正文并保留启用状态。 */
+    /** 内置技能每次扫描都恢复为 canonical 内容，外部改动或删除也不会生效。 */
     private fun installBundledSkills() {
         val parsed = parseSkillMd(BUNDLED_SKILL_CREATOR) ?: return
-        val dir = File(skillsDir, BUNDLED_SKILL_ID)
+        val dir = File(skillsDir, Skill.BUILT_IN_SKILL_CREATOR_ID)
         val file = File(dir, "SKILL.md")
-        val existingVersion = if (file.isFile) {
-            runCatching { parseSkillMd(file.readText())?.version }.getOrNull()
-        } else {
-            null
-        }
-        if (existingVersion != null && compareVersions(existingVersion, BUNDLED_SKILL_VERSION) >= 0) {
-            return
-        }
-
-        dir.mkdirs()
-        val enabled = if (file.isFile) {
-            BUNDLED_SKILL_ID !in preferences.disabledSkillIds.value
-        } else {
-            true
-        }
         val skill = Skill(
-            id = BUNDLED_SKILL_ID,
+            id = Skill.BUILT_IN_SKILL_CREATOR_ID,
             name = parsed.name,
             description = parsed.description,
             version = BUNDLED_SKILL_VERSION,
             body = parsed.body,
-            enabled = enabled,
+            enabled = Skill.BUILT_IN_SKILL_CREATOR_ID !in preferences.disabledSkillIds.value,
             updatedAt = System.currentTimeMillis(),
         )
-        file.writeText(serialize(skill))
-        if (enabled) preferences.setSkillEnabled(BUNDLED_SKILL_ID, true)
-    }
-
-    private fun compareVersions(left: String, right: String): Int {
-        val a = left.split('.').map { it.trim().toIntOrNull() ?: 0 }
-        val b = right.split('.').map { it.trim().toIntOrNull() ?: 0 }
-        for (index in 0 until maxOf(a.size, b.size)) {
-            val diff = (a.getOrElse(index) { 0 }) - (b.getOrElse(index) { 0 })
-            if (diff != 0) return diff
+        val canonical = serialize(skill)
+        if (!file.isFile || runCatching { file.readText() }.getOrNull() != canonical) {
+            dir.mkdirs()
+            file.writeText(canonical)
         }
-        return 0
     }
 
     // ── zip 解压 ─────────────────────────────────────────────────
@@ -448,7 +428,6 @@ class SkillRepository(
     }
 
     companion object {
-        private const val BUNDLED_SKILL_ID = "skill-creator"
         private const val BUNDLED_SKILL_VERSION = "2.0.0"
         private const val MAX_ARCHIVE_FILE_BYTES = 5L * 1024 * 1024
         private const val MAX_ARCHIVE_TOTAL_BYTES = 30L * 1024 * 1024

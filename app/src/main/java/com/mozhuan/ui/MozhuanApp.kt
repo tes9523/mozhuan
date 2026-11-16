@@ -1,8 +1,12 @@
 package com.mozhuan.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +44,8 @@ fun MozhuanRoot(container: AppContainer) {
             TopLevelDestination.entries.any { it.route == currentRoute }
 
         Scaffold(
+            // 输入法只由对话页的 imePadding 处理，根布局不能再为键盘预留一次底部空间。
+            contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
             bottomBar = {
                 if (showBottomBar) {
                     MozhuanBottomBar(navController)

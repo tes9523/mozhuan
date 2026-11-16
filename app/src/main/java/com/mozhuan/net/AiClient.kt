@@ -3,7 +3,9 @@ package com.mozhuan.net
 import com.mozhuan.data.model.ApiStyle
 import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ProviderInstance
+import com.mozhuan.data.model.ProviderType
 import com.mozhuan.data.model.ProxySettings
+import com.mozhuan.data.model.ThinkingLevel
 import com.mozhuan.net.model.AiMessage
 import com.mozhuan.net.tool.ToolSpec
 import com.mozhuan.system.log.AppLog
@@ -96,8 +98,17 @@ class AiClient(
         messages: List<AiMessage>,
         systemPrompt: String? = null,
         tools: List<ToolSpec> = emptyList(),
+        includeSampling: Boolean = true,
     ): Flow<StreamChunk> {
-        val request = buildChatRequest(provider, entry, messages, systemPrompt, tools, stream = true)
+        val request = buildChatRequest(
+            provider,
+            entry,
+            messages,
+            systemPrompt,
+            tools,
+            stream = true,
+            includeSampling = includeSampling,
+        )
         return flow {
             val call = http().newCall(request)
             val job = currentCoroutineContext()[Job]
@@ -132,7 +143,7 @@ class AiClient(
         }.flowOn(Dispatchers.IO)
     }
 
-    /** 非流式请求，用于「测试连接」。 */
+    /** 非流式请求，供需要单次响应的调用方使用。 */
     suspend fun complete(
         provider: ProviderInstance,
         entry: ModelEntry,
@@ -214,6 +225,7 @@ class AiClient(
         systemPrompt: String?,
         tools: List<ToolSpec>,
         stream: Boolean,
+        includeSampling: Boolean = true,
     ): Request {
         val base = provider.effectiveBaseUrl
         if (base.isBlank()) throw AiException("请先填写请求地址")
@@ -222,8 +234,22 @@ class AiClient(
             ApiStyle.ANTHROPIC_MESSAGES -> "/messages"
         }
         val payload = when (provider.type.apiStyle) {
-            ApiStyle.OPENAI_CHAT -> openAiPayload(entry, messages, systemPrompt, tools, stream)
-            ApiStyle.ANTHROPIC_MESSAGES -> anthropicPayload(entry, messages, systemPrompt, stream)
+            ApiStyle.OPENAI_CHAT -> openAiPayload(
+                provider,
+                entry,
+                messages,
+                systemPrompt,
+                tools,
+                stream,
+                includeSampling,
+            )
+            ApiStyle.ANTHROPIC_MESSAGES -> anthropicPayload(
+                entry,
+                messages,
+                systemPrompt,
+                stream,
+                includeSampling,
+            )
         }
         val builder = Request.Builder()
             .url("$base$path")
@@ -246,16 +272,18 @@ class AiClient(
     }
 
     private fun openAiPayload(
+        provider: ProviderInstance,
         entry: ModelEntry,
         messages: List<AiMessage>,
         systemPrompt: String?,
         tools: List<ToolSpec>,
         stream: Boolean,
+        includeSampling: Boolean,
     ): JSONObject = JSONObject().apply {
         put("model", entry.modelId)
         put("stream", stream)
         val reasoningModel = REASONING_MODEL.containsMatchIn(entry.modelId.lowercase())
-        if (!reasoningModel) {
+        if (includeSampling && !reasoningModel) {
             put("temperature", rounded(entry.temperature))
             put("top_p", rounded(entry.topP))
         }
@@ -264,6 +292,21 @@ class AiClient(
                 if (reasoningModel) "max_completion_tokens" else "max_tokens",
                 entry.maxTokens,
             )
+        }
+        val supportsThinking = provider.type != ProviderType.OPENAI || reasoningModel
+        if (supportsThinking) {
+            when {
+                entry.thinkingLevel == ThinkingLevel.OFF -> {
+                    if (provider.type == ProviderType.OPENAI && reasoningModel) {
+                        put("reasoning_effort", "none")
+                    }
+                }
+                provider.type == ProviderType.OPENROUTER -> put(
+                    "reasoning",
+                    JSONObject().put("effort", entry.thinkingLevel.wireValue),
+                )
+                else -> put("reasoning_effort", entry.thinkingLevel.wireValue)
+            }
         }
         if (stream) put("stream_options", JSONObject().put("include_usage", true))
         if (tools.isNotEmpty()) {
@@ -328,13 +371,35 @@ class AiClient(
         messages: List<AiMessage>,
         systemPrompt: String?,
         stream: Boolean,
+        includeSampling: Boolean,
     ): JSONObject = JSONObject().apply {
         put("model", entry.modelId)
         // Anthropic 必填 max_tokens；用户留空时给一个通用安全值。
-        put("max_tokens", entry.maxTokens.takeIf { it > 0 } ?: ANTHROPIC_DEFAULT_MAX_TOKENS)
+        val maxTokens = entry.maxTokens.takeIf { it > 0 } ?: ANTHROPIC_DEFAULT_MAX_TOKENS
+        put("max_tokens", maxTokens)
         put("stream", stream)
-        put("temperature", rounded(entry.temperature))
-        put("top_p", rounded(entry.topP))
+        if (includeSampling && entry.thinkingLevel == ThinkingLevel.OFF) {
+            put("temperature", rounded(entry.temperature))
+            put("top_p", rounded(entry.topP))
+        }
+        if (isAdaptiveAnthropicModel(entry.modelId)) {
+            put(
+                "thinking",
+                JSONObject().put("type", if (entry.thinkingLevel == ThinkingLevel.OFF) "disabled" else "adaptive"),
+            )
+            entry.thinkingLevel.wireValue?.let {
+                val effort = if (entry.thinkingLevel.ordinal >= ThinkingLevel.XHIGH.ordinal) "max" else it
+                put("output_config", JSONObject().put("effort", effort))
+            }
+        } else if (entry.thinkingLevel != ThinkingLevel.OFF) {
+            if (maxTokens <= 1024) throw AiException("思考模式需要 max_tokens 大于 1024")
+            put(
+                "thinking",
+                JSONObject()
+                    .put("type", "enabled")
+                    .put("budget_tokens", anthropicBudget(entry.thinkingLevel, maxTokens)),
+            )
+        }
         systemPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let { put("system", it) }
 
         val merged = mutableListOf<AiMessage>()
@@ -537,7 +602,7 @@ class AiClient(
             401, 403 -> "鉴权失败（$code）：API Key 无效或无权访问该模型"
             404 -> "接口不存在（404）：请检查服务商类型、请求地址与 /v1 后缀设置"
             408 -> "请求超时（408）：服务商未及时响应，请稍后重试"
-            429 -> "请求过于频繁（429）：请稍后重试或检查服务商限额"
+            429 -> "请求过于频繁（429）：${detail.ifBlank { "请稍后重试或检查服务商限额" }}"
             in 500..599 -> "服务商错误（$code）：${detail.ifBlank { "请稍后重试" }}"
             else -> "请求失败（HTTP $code）：${detail.ifBlank { "服务商未返回详细信息" }}"
         }
@@ -565,6 +630,24 @@ class AiClient(
         is IllegalArgumentException -> "请求地址格式不正确：请填写完整的 http:// 或 https:// 地址"
         is IOException -> "网络请求失败：${error.message?.takeIf { it.isNotBlank() } ?: "请检查网络连接"}"
         else -> "请求失败：${error.message?.takeIf { it.isNotBlank() } ?: "请检查网络连接"}"
+    }
+
+    private fun isAdaptiveAnthropicModel(modelId: String): Boolean {
+        val normalized = modelId.lowercase().replace('.', '-')
+        val match = Regex("claude-(?:opus|sonnet|haiku)-(\\d+)-(\\d+)").find(normalized)
+            ?: return false
+        val major = match.groupValues[1].toIntOrNull() ?: return false
+        val minor = match.groupValues[2].toIntOrNull() ?: return false
+        return major > 4 || (major == 4 && minor >= 6)
+    }
+
+    private fun anthropicBudget(level: ThinkingLevel, maxTokens: Int): Int {
+        val desired = when (level) {
+            ThinkingLevel.LOW -> 8192
+            ThinkingLevel.MEDIUM -> 32768
+            else -> maxTokens
+        }
+        return desired.coerceAtMost(maxTokens - 1).coerceAtLeast(1024)
     }
 
     /** 部分服务商（如智谱 GLM）要求最多 2 位小数，统一四舍五入后再发送。 */

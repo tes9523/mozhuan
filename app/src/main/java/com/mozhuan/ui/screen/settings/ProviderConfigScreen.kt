@@ -66,6 +66,7 @@ import com.mozhuan.data.model.ApiStyle
 import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
+import com.mozhuan.data.model.ThinkingLevel
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -715,6 +716,13 @@ private fun ModelDetailContent(viewModel: ProviderConfigViewModel) {
                     },
                 )
                 SettingsDivider()
+                ThinkingLevelRow(
+                    selected = model.thinkingLevel,
+                    onSelect = { level ->
+                        viewModel.updateEntryDraft { it.copy(thinkingLevel = level) }
+                    },
+                )
+                SettingsDivider()
                 SliderRow(
                     label = "temperature",
                     value = model.temperature,
@@ -879,6 +887,40 @@ private fun NumberField(
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThinkingLevelRow(
+    selected: ThinkingLevel,
+    onSelect: (ThinkingLevel) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Text("思考强度", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = "按服务商协议发送；不支持的模型可能忽略或拒绝该参数",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ThinkingLevel.entries.forEach { level ->
+                AssistChip(
+                    onClick = { onSelect(level) },
+                    label = { Text(level.label) },
+                    leadingIcon = if (level == selected) {
+                        { Text("✓") }
+                    } else {
+                        null
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable

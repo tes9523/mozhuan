@@ -13,6 +13,7 @@ import com.mozhuan.data.model.NotificationSettings
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
 import com.mozhuan.data.model.ProxySettings
+import com.mozhuan.data.model.ThinkingLevel
 import com.mozhuan.data.model.ToolSettings
 import com.mozhuan.data.model.UsageStat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -202,6 +203,7 @@ class AppPreferences(context: Context) {
                         .put("contextTurns", entry.contextTurns)
                         .put("temperature", entry.temperature.toDouble())
                         .put("topP", entry.topP.toDouble())
+                        .put("thinkingLevel", entry.thinkingLevel.name)
                         .put("isCustom", entry.isCustom)
                         .put("createdAt", entry.createdAt),
                 )
@@ -321,6 +323,7 @@ class AppPreferences(context: Context) {
                             contextTurns = item.optInt("contextTurns", 10),
                             temperature = item.optDouble("temperature", 0.8).toFloat(),
                             topP = item.optDouble("topP", 1.0).toFloat(),
+                            thinkingLevel = ThinkingLevel.from(item.optString("thinkingLevel")),
                             isCustom = item.optBoolean("isCustom", false),
                             createdAt = item.optLong("createdAt", System.currentTimeMillis()),
                         ),

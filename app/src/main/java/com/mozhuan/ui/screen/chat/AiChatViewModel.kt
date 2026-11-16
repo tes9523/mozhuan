@@ -247,6 +247,49 @@ class AiChatViewModel(
         startGeneration(candidates)
     }
 
+    /** 重发指定用户消息，保留它之前的上下文，丢弃原回复及后续分支。 */
+    fun retryUserMessage(messageId: String) {
+        restartFromUser(messageId, editedContent = null)
+    }
+
+    /** 修改指定用户消息后重新生成。 */
+    fun editUserMessage(messageId: String, content: String) {
+        restartFromUser(messageId, editedContent = content.trim())
+    }
+
+    /** 删除指定消息及其后的所有消息。 */
+    fun deleteMessagesFrom(messageId: String) {
+        if (_isStreaming.value) return
+        val index = _messages.value.indexOfFirst { it.id == messageId }
+        if (index < 0) return
+        setMessages(_messages.value.take(index))
+        _error.value = null
+    }
+
+    private fun restartFromUser(messageId: String, editedContent: String?) {
+        if (_isStreaming.value || editedContent?.isEmpty() == true) return
+        val current = _messages.value
+        val index = current.indexOfFirst { it.id == messageId && it.role == ChatRole.USER }
+        if (index < 0) return
+        val candidates = currentCandidates()
+        if (candidates.isEmpty()) {
+            _error.value = "请先在「设置 → 管理提供商」添加服务商并选择模型"
+            return
+        }
+
+        val userMessage = if (editedContent == null) {
+            current[index]
+        } else {
+            current[index].copy(content = editedContent)
+        }
+        setMessages(
+            current.take(index) + userMessage +
+                ChatMessage(role = ChatRole.ASSISTANT, content = ""),
+        )
+        sessionRepository.ensureTitle(sessionRepository.activeSessionId.value, userMessage.content)
+        startGeneration(candidates)
+    }
+
     fun stop() {
         cancelledByUser = true
         streamJob?.cancel()
@@ -454,20 +497,20 @@ class AiChatViewModel(
         setMessages(list.dropLast(1) + transform(list.last()))
     }
 
-    /** 人格 + 所有启用技能 + 记忆，合并为系统提示词。 */
+    /** 人格 + 技能元数据 + 记忆；技能正文只在模型需要时通过 read_file 加载。 */
     private fun buildSystemPrompt(): String = buildString {
         val persona = settingsRepository.currentPersona().trim()
         if (persona.isNotEmpty()) append(persona)
-        val skills = skillRepository.enabledSkills()
+        val skills = skillRepository.enabledSkills().take(MAX_DISCOVERABLE_SKILLS)
         if (skills.isNotEmpty()) {
             if (isNotEmpty()) append("\n\n")
-            append("# 已启用技能\n")
+            append("# 可用技能\n")
+            append("以下仅包含技能元数据。当用户任务与某个技能的描述匹配时，先调用 read_file 读取对应 path 的 SKILL.md，再遵循其中的指令；不要凭空假设技能正文。附件也按需读取，不要预先加载。\n")
             skills.forEach { skill ->
-                append("\n## ").append(skill.name.trim()).append('\n')
-                if (skill.description.isNotBlank()) {
-                    append(skill.description.trim()).append("\n\n")
-                }
-                append(skill.body.trim()).append('\n')
+                append("\n- name: ").append(skill.name.trim().replace('\n', ' '))
+                append("\n  description: ")
+                    .append(skill.displayDescription.trim().replace(Regex("\\s+"), " ").take(MAX_SKILL_DESCRIPTION_CHARS))
+                append("\n  path: skills/").append(skill.id).append("/SKILL.md\n")
             }
         }
         val memory = memoryRepository.promptFragment()
@@ -528,5 +571,7 @@ class AiChatViewModel(
     private companion object {
         /** 单次回复内最多执行几轮工具调用，避免死循环。 */
         const val MAX_TOOL_ROUNDS = 4
+        const val MAX_DISCOVERABLE_SKILLS = 20
+        const val MAX_SKILL_DESCRIPTION_CHARS = 200
     }
 }

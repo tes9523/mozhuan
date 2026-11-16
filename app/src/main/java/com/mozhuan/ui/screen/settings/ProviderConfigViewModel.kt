@@ -216,17 +216,21 @@ class ProviderConfigViewModel(
             _testResult.value = TestResult(false, "请填写请求地址")
             return
         }
-        val modelId = repository.entriesFor(draft.id).firstOrNull()?.modelId
-            ?: draft.type.defaultModels.firstOrNull()
-        if (modelId.isNullOrBlank()) {
+        val entry = repository.entries.value.firstOrNull {
+            it.id == selectedEntryId.value && it.providerId == draft.id
+        } ?: repository.entriesFor(draft.id).firstOrNull()
+        if (entry == null && draft.type.defaultModels.isEmpty()) {
             _testResult.value = TestResult(false, "请先添加一个模型后再测试")
             return
         }
         _testing.value = true
         _testResult.value = null
         viewModelScope.launch {
-            repository.testProvider(draft, modelId)
-                .onSuccess { reply -> _testResult.value = TestResult(true, "连接成功：${reply.take(60)}") }
+            repository.testProvider(draft, entry)
+                .onSuccess { reply ->
+                    val modelName = entry?.title ?: draft.type.defaultModels.first()
+                    _testResult.value = TestResult(true, "连接成功（$modelName）：${reply.take(60)}")
+                }
                 .onFailure { error ->
                     _testResult.value = TestResult(false, error.message ?: "连接失败")
                 }
