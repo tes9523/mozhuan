@@ -38,27 +38,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ThemeMode
+import com.mozhuan.ui.navigation.Routes
 import kotlin.math.roundToInt
 
-/**
- * 设置页：OpenMinis 风格卡片分组。
- *
- * 已做实：LLM 提供商配置、外观（主题 / 字号）、AGENT 人格系统。
- * 其余入口保留 UI，页面为占位。
- */
+/** OpenMinis 风格设置主页；实功能与占位入口分别跳转到对应页面。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onOpenProvider: () -> Unit,
-    onOpenPersona: () -> Unit,
+    onNavigate: (String) -> Unit,
     onOpenPlaceholder: (String) -> Unit,
 ) {
     val themeModeValue by viewModel.themeMode.collectAsStateWithLifecycle()
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
-    val apiSettings by viewModel.apiSettings.collectAsStateWithLifecycle()
+    val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val defaultProviderId by viewModel.defaultProviderId.collectAsStateWithLifecycle()
 
     val themeMode = ThemeMode.from(themeModeValue)
+    val defaultProvider = providers.firstOrNull { it.id == defaultProviderId } ?: providers.firstOrNull()
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontDialog by remember { mutableStateOf(false) }
 
@@ -71,17 +68,16 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = 24.dp),
         ) {
-            // ── LLM 提供商 ────────────────────────────────────────
             SettingsGroup(title = "LLM 提供商") {
                 SettingsRow(
                     icon = Icons.Filled.Build,
                     title = "管理提供商",
-                    subtitle = if (apiSettings.isConfigured) {
-                        "当前模型：${apiSettings.model}"
+                    subtitle = if (defaultProvider?.isConfigured == true) {
+                        "默认：${defaultProvider.displayName} · ${defaultProvider.model}"
                     } else {
-                        "未配置，填写接口地址 / API Key / 模型"
+                        "新增、编辑、删除服务商并设置默认项"
                     },
-                    onClick = onOpenProvider,
+                    onClick = { onNavigate(Routes.PROVIDER) },
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -94,12 +90,11 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Star,
                     title = "Token 用量",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("Token 用量") },
+                    subtitle = "当前会话与按服务商、模型累计统计",
+                    onClick = { onNavigate(Routes.TOKEN_USAGE) },
                 )
             }
 
-            // ── 外观 ──────────────────────────────────────────────
             SettingsGroup(title = "外观") {
                 SettingsRow(
                     icon = Icons.Filled.Settings,
@@ -114,15 +109,42 @@ fun SettingsScreen(
                     subtitle = "当前 ${(fontScale * 100).roundToInt()}%",
                     onClick = { showFontDialog = true },
                 )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "显示设置",
+                    subtitle = "消息时间、紧凑气泡、自动滚动",
+                    onClick = { onNavigate(Routes.DISPLAY_SETTINGS) },
+                )
             }
 
-            // ── AGENT 运行时 ──────────────────────────────────────
             SettingsGroup(title = "AGENT 运行时") {
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "技能",
+                    subtitle = "静态提示词模板、开关与单条导入导出",
+                    onClick = { onNavigate(Routes.SKILLS) },
+                )
+                SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Person,
                     title = "人格系统（SOUL.md）",
                     subtitle = "全局人格 Prompt，所有对话自动携带",
-                    onClick = onOpenPersona,
+                    onClick = { onNavigate(Routes.PERSONA) },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Filled.Build,
+                    title = "可用工具",
+                    subtitle = "预留入口",
+                    onClick = { onOpenPlaceholder("可用工具") },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Filled.Person,
+                    title = "子代理任务",
+                    subtitle = "预留入口",
+                    onClick = { onOpenPlaceholder("子代理任务") },
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -131,10 +153,37 @@ fun SettingsScreen(
                     subtitle = "预留入口",
                     onClick = { onOpenPlaceholder("记忆") },
                 )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Filled.Settings,
+                    title = "MCP 集成",
+                    subtitle = "预留入口",
+                    onClick = { onOpenPlaceholder("MCP 集成") },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "环境变量",
+                    subtitle = "预留入口",
+                    onClick = { onOpenPlaceholder("环境变量") },
+                )
             }
 
-            // ── 存储 ──────────────────────────────────────────────
             SettingsGroup(title = "存储") {
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "共享文件夹",
+                    subtitle = "预览、导入、导出技能与人格文本",
+                    onClick = { onNavigate(Routes.SHARED_FOLDER) },
+                )
+                SettingsDivider()
+                SettingsRow(
+                    icon = Icons.Filled.Share,
+                    title = "挂载外部文件夹",
+                    subtitle = "预留入口",
+                    onClick = { onOpenPlaceholder("挂载外部文件夹") },
+                )
+                SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Share,
                     title = "备份与恢复",
@@ -143,7 +192,6 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 网络 ──────────────────────────────────────────────
             SettingsGroup(title = "网络") {
                 SettingsRow(
                     icon = Icons.Filled.Lock,
@@ -153,7 +201,6 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 后台与通知 ────────────────────────────────────────
             SettingsGroup(title = "后台与通知") {
                 SettingsRow(
                     icon = Icons.Filled.Notifications,
@@ -163,7 +210,6 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 日志 ──────────────────────────────────────────────
             SettingsGroup(title = "日志") {
                 SettingsRow(
                     icon = Icons.AutoMirrored.Filled.List,
@@ -173,12 +219,11 @@ fun SettingsScreen(
                 )
             }
 
-            // ── 关于 ──────────────────────────────────────────────
             SettingsGroup(title = "关于") {
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "版本号",
-                    subtitle = "0.5.0",
+                    subtitle = "0.6.0",
                 )
                 SettingsDivider()
                 SettingsRow(

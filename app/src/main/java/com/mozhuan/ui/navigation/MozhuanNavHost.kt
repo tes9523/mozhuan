@@ -15,6 +15,7 @@ import com.mozhuan.AppContainer
 import com.mozhuan.ui.screen.books.BookPlaceholderScreen
 import com.mozhuan.ui.screen.chat.AiChatScreen
 import com.mozhuan.ui.screen.chat.AiChatViewModel
+import com.mozhuan.ui.screen.settings.DisplaySettingsScreen
 import com.mozhuan.ui.screen.settings.PersonaScreen
 import com.mozhuan.ui.screen.settings.PersonaViewModel
 import com.mozhuan.ui.screen.settings.PlaceholderScreen
@@ -22,10 +23,14 @@ import com.mozhuan.ui.screen.settings.ProviderConfigScreen
 import com.mozhuan.ui.screen.settings.ProviderConfigViewModel
 import com.mozhuan.ui.screen.settings.SettingsScreen
 import com.mozhuan.ui.screen.settings.SettingsViewModel
+import com.mozhuan.ui.screen.settings.SharedFolderScreen
+import com.mozhuan.ui.screen.settings.SharedFolderViewModel
+import com.mozhuan.ui.screen.settings.SkillScreen
+import com.mozhuan.ui.screen.settings.SkillViewModel
+import com.mozhuan.ui.screen.settings.TokenUsageScreen
+import com.mozhuan.ui.screen.settings.TokenUsageViewModel
 
-/**
- * 全局导航图：三个顶层 Tab + 设置子页（提供商 / 人格 / 占位）。
- */
+/** 全局导航图：三个顶层 Tab + 设置功能页与占位页。 */
 @Composable
 fun MozhuanNavHost(
     navController: NavHostController,
@@ -37,13 +42,14 @@ fun MozhuanNavHost(
         startDestination = Routes.CHAT,
         modifier = modifier,
     ) {
-        // ── Tab1：AI 对话 ──────────────────────────────────────────
         composable(Routes.CHAT) {
             val chatViewModel: AiChatViewModel = viewModel(
                 factory = viewModelFactory {
                     initializer {
                         AiChatViewModel(
                             settingsRepository = container.settingsRepository,
+                            skillRepository = container.skillRepository,
+                            tokenUsageRepository = container.tokenUsageRepository,
                             aiClient = container.aiClient,
                         )
                     }
@@ -51,18 +57,16 @@ fun MozhuanNavHost(
             )
             AiChatScreen(
                 viewModel = chatViewModel,
-                onOpenSettings = {
-                    navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+                onOpenPersona = {
+                    navController.navigate(Routes.PERSONA) { launchSingleTop = true }
                 },
             )
         }
 
-        // ── Tab2：书稿（占位） ─────────────────────────────────────
         composable(Routes.BOOKS) {
             BookPlaceholderScreen()
         }
 
-        // ── Tab3：设置 ─────────────────────────────────────────────
         composable(Routes.SETTINGS) {
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = viewModelFactory {
@@ -71,13 +75,11 @@ fun MozhuanNavHost(
             )
             SettingsScreen(
                 viewModel = settingsViewModel,
-                onOpenProvider = { navController.navigate(Routes.PROVIDER) },
-                onOpenPersona = { navController.navigate(Routes.PERSONA) },
+                onNavigate = { route -> navController.navigate(route) },
                 onOpenPlaceholder = { title -> navController.navigate(Routes.placeholder(title)) },
             )
         }
 
-        // ── 设置 · 管理提供商 ─────────────────────────────────────
         composable(Routes.PROVIDER) {
             val providerViewModel: ProviderConfigViewModel = viewModel(
                 factory = viewModelFactory {
@@ -95,7 +97,59 @@ fun MozhuanNavHost(
             )
         }
 
-        // ── 设置 · 人格系统 ───────────────────────────────────────
+        composable(Routes.TOKEN_USAGE) {
+            val tokenViewModel: TokenUsageViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { TokenUsageViewModel(container.tokenUsageRepository) }
+                },
+            )
+            TokenUsageScreen(
+                viewModel = tokenViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.DISPLAY_SETTINGS) {
+            val displayViewModel: SettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { SettingsViewModel(container.settingsRepository) }
+                },
+            )
+            DisplaySettingsScreen(
+                viewModel = displayViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.SKILLS) {
+            val skillViewModel: SkillViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { SkillViewModel(container.skillRepository) }
+                },
+            )
+            SkillScreen(
+                viewModel = skillViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.SHARED_FOLDER) {
+            val sharedViewModel: SharedFolderViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        SharedFolderViewModel(
+                            settingsRepository = container.settingsRepository,
+                            skillRepository = container.skillRepository,
+                        )
+                    }
+                },
+            )
+            SharedFolderScreen(
+                viewModel = sharedViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
         composable(Routes.PERSONA) {
             val personaViewModel: PersonaViewModel = viewModel(
                 factory = viewModelFactory {
@@ -108,7 +162,6 @@ fun MozhuanNavHost(
             )
         }
 
-        // ── 设置 · 通用占位子页 ───────────────────────────────────
         composable(
             route = Routes.PLACEHOLDER,
             arguments = listOf(navArgument(Routes.ARG_TITLE) { type = NavType.StringType }),

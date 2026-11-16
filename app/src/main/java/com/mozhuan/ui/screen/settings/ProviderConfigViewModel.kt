@@ -17,15 +17,19 @@ data class TestResult(
     val message: String,
 )
 
-/**
- * LLM 提供商配置 ViewModel：连接信息 + 生成参数 + 测试连接。
- */
+/** 多服务商管理：新增、编辑、删除、设默认与独立生成参数。 */
 class ProviderConfigViewModel(
     private val settingsRepository: SettingsRepository,
     private val aiClient: AiClient,
 ) : ViewModel() {
 
-    private val _draft = MutableStateFlow(settingsRepository.currentApiSettings())
+    val providers: StateFlow<List<ApiSettings>> = settingsRepository.providers
+    val defaultProviderId: StateFlow<String> = settingsRepository.defaultProviderId
+
+    private val _draft = MutableStateFlow(
+        settingsRepository.currentApiSettings().takeIf { settingsRepository.providers.value.isNotEmpty() }
+            ?: ApiSettings(name = "默认服务商"),
+    )
     val draft: StateFlow<ApiSettings> = _draft.asStateFlow()
 
     private val _testing = MutableStateFlow(false)
@@ -34,29 +38,58 @@ class ProviderConfigViewModel(
     private val _testResult = MutableStateFlow<TestResult?>(null)
     val testResult: StateFlow<TestResult?> = _testResult.asStateFlow()
 
+    fun startNew() {
+        _draft.value = ApiSettings(name = "新服务商")
+        _testResult.value = null
+    }
+
+    fun edit(provider: ApiSettings) {
+        _draft.value = provider
+        _testResult.value = null
+    }
+
     fun update(transform: (ApiSettings) -> ApiSettings) {
         _draft.value = transform(_draft.value)
         _testResult.value = null
     }
 
-    /** 保存到本地持久化。 */
     fun save() {
-        settingsRepository.saveApiSettings(_draft.value)
+        val settings = _draft.value
+        if (!settings.isConfigured || settings.name.isBlank()) {
+            _testResult.value = TestResult(false, "请完整填写名称、端点、API Key 与模型")
+            return
+        }
+        settingsRepository.saveProvider(settings)
     }
 
-    /** 重置生成参数为默认值（保留接口地址 / Key / 模型）。 */
-    fun resetParameters() {
-        settingsRepository.resetApiParameters()
-        _draft.value = settingsRepository.currentApiSettings()
+    fun delete(providerId: String) {
+        settingsRepository.deleteProvider(providerId)
+        if (_draft.value.id == providerId) {
+            _draft.value = settingsRepository.currentApiSettings()
+                .takeIf { settingsRepository.providers.value.isNotEmpty() }
+                ?: ApiSettings(name = "默认服务商")
+        }
         _testResult.value = null
     }
 
-    /** 使用当前草稿配置发起一次非流式请求，验证连通性。 */
+    fun setDefault(providerId: String) = settingsRepository.setDefaultProvider(providerId)
+
+    /** 仅重置当前编辑中的生成参数，连接信息不变。 */
+    fun resetParameters() {
+        _draft.value = _draft.value.copy(
+            maxTokens = ApiSettings.DEFAULT.maxTokens,
+            temperature = ApiSettings.DEFAULT.temperature,
+            topP = ApiSettings.DEFAULT.topP,
+            contextTurns = ApiSettings.DEFAULT.contextTurns,
+        )
+        _testResult.value = null
+    }
+
     fun testConnection() {
         if (_testing.value) return
         val settings = _draft.value
         if (!settings.isConfigured) {
-            _testResult.value = TestResult(false, "请先填写接口地址、API Key 与模型名称")
+            _testResult.value = TestResult(false, "请先填写端点、API Key 与模型名称")
             return
         }
 
@@ -72,7 +105,7 @@ class ProviderConfigViewModel(
                     _testResult.value = TestResult(true, "连接成功：$preview")
                 },
                 onFailure = { error ->
-                    _testResult.value = TestResult(false, "连接失败：${error.message ?: "未知错误"}")
+                    _testResult.value = TestResult(false, error.message ?: "连接失败：未知错误")
                 },
             )
             _testing.value = false

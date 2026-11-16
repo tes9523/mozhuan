@@ -23,6 +23,18 @@ object Routes {
     /** LLM 提供商管理（全屏子页）。 */
     const val PROVIDER = "settings/provider"
 
+    /** Token 用量统计。 */
+    const val TOKEN_USAGE = "settings/token_usage"
+
+    /** 对话显示设置。 */
+    const val DISPLAY_SETTINGS = "settings/display"
+
+    /** 静态提示词技能管理。 */
+    const val SKILLS = "settings/skills"
+
+    /** 技能与人格文本共享文件夹。 */
+    const val SHARED_FOLDER = "settings/shared_folder"
+
     /** AGENT 人格系统（全屏子页）。 */
     const val PERSONA = "settings/persona"
 
