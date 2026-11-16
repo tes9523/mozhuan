@@ -1,5 +1,8 @@
 package com.mozhuan.ui.screen.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,12 +17,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,32 +39,29 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ChatMessage
 import com.mozhuan.data.model.ChatRole
-import com.mozhuan.ui.component.MozhuanChip
 
 /**
- * AI 对话页：全局自由对话，或绑定书稿的专属对话。
+ * AI 对话页：标准双色气泡、逐字流式、停止生成、清空、复制 AI 回复、自动滚动。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiChatScreen(
     viewModel: AiChatViewModel,
-    onBack: (() -> Unit)?,
     onOpenSettings: () -> Unit,
 ) {
-    val book by viewModel.book.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    val skills by viewModel.skills.collectAsStateWithLifecycle()
-    val selectedGlobalSkillId by viewModel.selectedGlobalSkillId.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
+    val context = LocalContext.current
 
     // 新消息或流式增量到达时，滚动到底部。
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
@@ -76,22 +74,7 @@ fun AiChatScreen(
             .imePadding(),
     ) {
         TopAppBar(
-            navigationIcon = {
-                if (onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            },
-            title = {
-                Text(
-                    if (viewModel.isBound && book != null) {
-                        "《${book?.title}》专属对话"
-                    } else {
-                        "AI 对话"
-                    },
-                )
-            },
+            title = { Text("AI 对话") },
             actions = {
                 if (messages.isNotEmpty() && !isStreaming) {
                     TextButton(onClick = viewModel::clearMessages) { Text("清空") }
@@ -102,42 +85,6 @@ fun AiChatScreen(
             },
         )
 
-        // 技能栏：绑定书稿时展示本书技能，否则可手动选择全局技能。
-        if (viewModel.isBound) {
-            val boundSkills = skills.filter { book?.boundSkillIds?.contains(it.id) == true }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = if (boundSkills.isEmpty()) "本书技能：未绑定（使用全局技能）" else "本书技能：",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                boundSkills.forEach { skill ->
-                    Spacer(Modifier.width(8.dp))
-                    MozhuanChip(text = skill.name, selected = true)
-                }
-            }
-        } else if (skills.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(skills, key = { it.id }) { skill ->
-                    MozhuanChip(
-                        text = skill.name,
-                        selected = skill.id == selectedGlobalSkillId,
-                        onClick = { viewModel.selectGlobalSkill(skill.id) },
-                    )
-                }
-            }
-        }
-
-        // 空状态提示。
         if (messages.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -147,11 +94,11 @@ fun AiChatScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = if (viewModel.isBound) "和 AI 一起打磨《${book?.title}》" else "开始一段新的对话",
+                        text = "开始一段新的对话",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = "AI 能力共用同一套 API，通过技能模板区分任务",
+                        text = "人格 Prompt、模型与参数均取自设置页，对话自动携带上下文",
                         modifier = Modifier.padding(top = 8.dp, start = 32.dp, end = 32.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -169,12 +116,14 @@ fun AiChatScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
-                    MessageBubble(message)
+                    MessageBubble(
+                        message = message,
+                        onCopy = { copyToClipboard(context, message.content) },
+                    )
                 }
             }
         }
 
-        // 错误提示。
         if (error != null) {
             Text(
                 text = error.orEmpty(),
@@ -186,7 +135,6 @@ fun AiChatScreen(
             )
         }
 
-        // 输入区。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -198,12 +146,12 @@ fun AiChatScreen(
                 onValueChange = viewModel::onInputChange,
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("和 AI 聊聊你的故事…") },
-                maxLines = 4,
+                maxLines = 5,
             )
             Spacer(Modifier.width(8.dp))
             if (isStreaming) {
                 FilledTonalButton(onClick = viewModel::stop) {
-                    Text("停止")
+                    Text("停止生成")
                 }
             } else {
                 Button(
@@ -218,11 +166,14 @@ fun AiChatScreen(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(
+    message: ChatMessage,
+    onCopy: () -> Unit,
+) {
     val isUser = message.role == ChatRole.USER
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
         Surface(
             color = if (isUser) {
@@ -236,7 +187,7 @@ private fun MessageBubble(message: ChatMessage) {
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.widthIn(max = 300.dp),
+            modifier = Modifier.widthIn(max = 320.dp),
         ) {
             if (message.content.isEmpty() && !isUser) {
                 Row(
@@ -258,5 +209,21 @@ private fun MessageBubble(message: ChatMessage) {
                 )
             }
         }
+
+        // 每条 AI 消息支持一键复制。
+        if (!isUser && message.content.isNotEmpty()) {
+            TextButton(
+                onClick = onCopy,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            ) {
+                Text("复制", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    if (text.isEmpty()) return
+    val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    manager.setPrimaryClip(ClipData.newPlainText("墨撰", text))
 }

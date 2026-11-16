@@ -2,37 +2,6 @@ package com.mozhuan.data.model
 
 import java.util.UUID
 
-/** 书稿：书名、本书设定、章节列表、绑定技能。 */
-data class Book(
-    val id: String = UUID.randomUUID().toString(),
-    val title: String,
-    /** 世界观设定。 */
-    val worldview: String = "",
-    /** 人物设定。 */
-    val characters: String = "",
-    /** 章节列表（按顺序）。 */
-    val chapters: List<Chapter> = emptyList(),
-    /** 本书绑定的技能 ID，优先级高于全局技能。 */
-    val boundSkillIds: List<String> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis(),
-)
-
-/** 章节：标题、正文。 */
-data class Chapter(
-    val id: String = UUID.randomUUID().toString(),
-    val title: String,
-    val content: String = "",
-)
-
-/** 技能：名称、系统 Prompt、标签。内置技能不可删除。 */
-data class Skill(
-    val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val systemPrompt: String,
-    val tags: List<String> = emptyList(),
-    val builtin: Boolean = false,
-)
-
 /** 对话角色。 */
 enum class ChatRole(val apiValue: String, val displayName: String) {
     USER("user", "我"),
@@ -56,9 +25,25 @@ enum class ThemeMode {
     }
 }
 
-/** 统一 API 配置：对话与续写共用同一套后端。 */
-data class AiConfig(
-    val baseUrl: String,
-    val apiKey: String,
-    val model: String,
-)
+/**
+ * 统一 LLM 提供商配置（OpenAI 兼容接口）。
+ * 对话、续写、人设渲染全部共用这一套配置。
+ */
+data class ApiSettings(
+    val baseUrl: String = "",
+    val apiKey: String = "",
+    val model: String = "",
+    val maxTokens: Int = 2048,
+    val temperature: Float = 0.8f,
+    val topP: Float = 1.0f,
+    /** 携带的历史对话轮数，0 表示不携带历史。 */
+    val contextTurns: Int = 10,
+) {
+    /** 是否已填写必要的连接信息。 */
+    val isConfigured: Boolean
+        get() = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
+
+    companion object {
+        val DEFAULT = ApiSettings()
+    }
+}

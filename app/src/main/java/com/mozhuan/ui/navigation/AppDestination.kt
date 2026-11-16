@@ -1,5 +1,6 @@
 package com.mozhuan.ui.navigation
 
+import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Email
@@ -10,37 +11,31 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * 全局路由表：集中维护，页面之间不硬编码路由。
  */
 object Routes {
-    /** Tab1：AI 对话。bookId 为空表示全局对话，非空表示绑定书稿的专属对话。 */
-    const val CHAT = "chat?bookId={bookId}"
+    /** Tab1：AI 对话。 */
+    const val CHAT = "chat"
 
-    /** Tab2：书稿列表。 */
+    /** Tab2：书稿（纯占位）。 */
     const val BOOKS = "books"
 
     /** Tab3：设置。 */
     const val SETTINGS = "settings"
 
-    /** 技能管理（全屏）。 */
-    const val SKILLS = "skills"
+    /** LLM 提供商管理（全屏子页）。 */
+    const val PROVIDER = "settings/provider"
 
-    /** 书稿详情（全屏）。 */
-    const val BOOK_DETAIL = "book/{bookId}"
+    /** AGENT 人格系统（全屏子页）。 */
+    const val PERSONA = "settings/persona"
 
-    /** 章节编辑（全屏）。 */
-    const val CHAPTER = "chapter/{bookId}/{chapterId}"
+    /** 通用占位子页。 */
+    const val PLACEHOLDER = "settings/placeholder/{title}"
 
-    const val ARG_BOOK_ID = "bookId"
-    const val ARG_CHAPTER_ID = "chapterId"
+    const val ARG_TITLE = "title"
 
-    fun chat(bookId: String? = null): String =
-        if (bookId.isNullOrBlank()) "chat" else "chat?bookId=$bookId"
-
-    fun bookDetail(bookId: String): String = "book/$bookId"
-
-    fun chapter(bookId: String, chapterId: String): String = "chapter/$bookId/$chapterId"
+    fun placeholder(title: String): String = "settings/placeholder/${Uri.encode(title)}"
 }
 
 /**
- * 底部导航的三个顶层目的地。
+ * 底部导航的三个顶层目的地（永久固定）。
  *
  * @property route 路由表中的模式（用于判断当前选中项）
  * @property navRoute 实际跳转用的具体路由
@@ -51,7 +46,7 @@ enum class TopLevelDestination(
     val label: String,
     val icon: ImageVector,
 ) {
-    CHAT(Routes.CHAT, "chat", "AI对话", Icons.Filled.Email),
+    CHAT(Routes.CHAT, Routes.CHAT, "AI对话", Icons.Filled.Email),
     BOOKS(Routes.BOOKS, Routes.BOOKS, "书稿", Icons.AutoMirrored.Filled.List),
     SETTINGS(Routes.SETTINGS, Routes.SETTINGS, "设置", Icons.Filled.Settings),
 }

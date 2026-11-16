@@ -17,20 +17,21 @@ import com.mozhuan.ui.navigation.TopLevelDestination
 import com.mozhuan.ui.theme.MozhuanTheme
 
 /**
- * 应用根节点：主题 + 全局 Scaffold + 导航图。
+ * 应用根节点：主题 + 字号 + 全局 Scaffold + 导航图。
  *
- * 底部导航栏只在三个顶层 Tab 显示；书稿详情、章节编辑、技能管理为全屏页面。
+ * 底部导航栏只在三个顶层 Tab 显示；设置子页为全屏页面。
  */
 @Composable
 fun MozhuanRoot(container: AppContainer) {
-    val themeMode by container.settingsRepository.themeMode.collectAsStateWithLifecycle()
-    val darkTheme = when (themeMode) {
+    val themeModeValue by container.settingsRepository.themeMode.collectAsStateWithLifecycle()
+    val fontScale by container.settingsRepository.fontScale.collectAsStateWithLifecycle()
+    val darkTheme = when (ThemeMode.from(themeModeValue)) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
 
-    MozhuanTheme(darkTheme = darkTheme) {
+    MozhuanTheme(darkTheme = darkTheme, fontScale = fontScale) {
         val navController = rememberNavController()
         val backStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = backStackEntry?.destination?.route

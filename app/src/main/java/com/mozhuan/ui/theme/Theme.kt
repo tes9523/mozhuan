@@ -6,9 +6,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 
 private val LightColors = lightColorScheme(
@@ -47,9 +50,15 @@ private val DarkColors = darkColorScheme(
     outline = Color(0xFF938F87),
 )
 
+/**
+ * 全局主题。
+ *
+ * @param fontScale 字号缩放系数（仅影响 sp 字号，不改变 dp 布局）
+ */
 @Composable
 fun MozhuanTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    fontScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val view = LocalView.current
@@ -63,9 +72,17 @@ fun MozhuanTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = MozhuanTypography,
-        content = content,
-    )
+    val density = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides Density(
+            density = density.density,
+            fontScale = (density.fontScale * fontScale).coerceIn(0.5f, 3f),
+        ),
+    ) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            typography = MozhuanTypography,
+            content = content,
+        )
+    }
 }

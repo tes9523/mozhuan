@@ -2,9 +2,7 @@ package com.mozhuan
 
 import android.app.Application
 import android.content.Context
-import com.mozhuan.data.repository.BookRepository
 import com.mozhuan.data.repository.SettingsRepository
-import com.mozhuan.data.repository.SkillRepository
 import com.mozhuan.net.AiClient
 import com.mozhuan.storage.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineScope
@@ -14,8 +12,8 @@ import kotlinx.coroutines.SupervisorJob
 /**
  * 手动依赖容器。
  *
- * 本阶段书稿 / 章节 / 技能数据均为内存仓库；
- * 后续接入持久化或 LLM 底座时在此扩展，不污染 UI 层。
+ * 全应用共用同一个 AI 后端：对话、续写、人设渲染都读取同一套 [AppPreferences] 配置，
+ * 书稿功能当前仅为占位入口，不在此注册任何业务仓库。
  */
 class AppContainer(context: Context) {
 
@@ -26,10 +24,6 @@ class AppContainer(context: Context) {
     val preferences = AppPreferences(applicationContext)
 
     val settingsRepository = SettingsRepository(preferences)
-
-    val bookRepository = BookRepository()
-
-    val skillRepository = SkillRepository()
 
     val aiClient = AiClient()
 }

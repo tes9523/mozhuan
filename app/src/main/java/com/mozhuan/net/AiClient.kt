@@ -1,6 +1,6 @@
 package com.mozhuan.net
 
-import com.mozhuan.data.model.AiConfig
+import com.mozhuan.data.model.ApiSettings
 import com.mozhuan.net.model.AiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,10 +17,10 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * 统一的 AI 网络层：只保留一个 OpenAI 兼容的 SSE 适配器。
+ * 统一的 AI 网络层：单一 OpenAI 兼容 SSE 适配器。
  *
- * 所有 AI 能力（全局对话、绑定书稿对话、章节续写）共用同一套 API 配置，
- * 通过上层传入不同的技能 System Prompt 来区分任务。
+ * 所有 AI 能力共用同一套 [ApiSettings]（地址 / Key / 模型 / 参数），
+ * 通过 System Prompt（人格）与对话上下文区分任务。
  */
 class AiClient {
 
@@ -34,66 +34,38 @@ class AiClient {
     /**
      * 发起 SSE 流式对话。
      *
-     * @param config API 配置（地址、密钥、模型）
-     * @param messages 完整消息列表（含 system 消息与多轮历史）
-     * @param onDelta 文本增量回调
-     * @param onComplete 正常结束回调
-     * @param onError 错误回调
      * @return 底层 [Call]，供上层取消生成
      */
     fun streamChat(
-        config: AiConfig,
+        settings: ApiSettings,
         messages: List<AiMessage>,
         onDelta: (String) -> Unit,
         onComplete: () -> Unit,
         onError: (String) -> Unit,
     ): Call {
-        val payload = JSONObject().apply {
-            put("model", config.model.ifBlank { "gpt-3.5-turbo" })
-            put("stream", true)
-            put("temperature", 0.8)
-            put(
-                "messages",
-                JSONArray().apply {
-                    messages.forEach { message ->
-                        put(
-                            JSONObject()
-                                .put("role", message.role)
-                                .put("content", message.content),
-                        )
-                    }
-                },
-            )
-        }
-
         val request = Request.Builder()
-            .url(resolveEndpoint(config.baseUrl))
-            .addHeader("Authorization", "Bearer ${config.apiKey}")
+            .url(resolveEndpoint(settings.baseUrl))
+            .addHeader("Authorization", "Bearer ${settings.apiKey}")
             .addHeader("Content-Type", "application/json")
             .addHeader("Accept", "text/event-stream")
-            .post(payload.toString().toRequestBody(JSON))
+            .post(buildPayload(settings, messages, stream = true).toRequestBody(JSON))
             .build()
 
         val call = http.newCall(request)
         call.enqueue(
             object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    // 主动取消时不视为错误，由上层自行判断。
-                    if (call.isCanceled()) {
-                        onComplete()
-                    } else {
-                        onError(e.message ?: "网络请求失败")
-                    }
+                    if (call.isCanceled()) onComplete() else onError(e.message ?: "网络请求失败")
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        if (!it.isSuccessful) {
-                            val body = runCatching { it.body?.string() }.getOrNull().orEmpty()
-                            onError("HTTP ${it.code} ${body.take(300)}")
+                    response.use { resp ->
+                        if (!resp.isSuccessful) {
+                            val body = runCatching { resp.body?.string() }.getOrNull().orEmpty()
+                            onError("HTTP ${resp.code} ${body.take(300)}")
                             return
                         }
-                        runCatching { parseSseStream(it, onDelta) }
+                        runCatching { parseSseStream(resp, onDelta) }
                             .onSuccess { onComplete() }
                             .onFailure { error -> onError(error.message ?: "流式解析失败") }
                     }
@@ -103,33 +75,15 @@ class AiClient {
         return call
     }
 
-    /**
-     * 非流式请求，一次返回完整文本。主要用于服务连通性测试。
-     */
-    suspend fun chat(config: AiConfig, messages: List<AiMessage>): Result<String> =
+    /** 非流式请求，用于「测试连接」。 */
+    suspend fun chat(settings: ApiSettings, messages: List<AiMessage>): Result<String> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val payload = JSONObject().apply {
-                    put("model", config.model.ifBlank { "gpt-3.5-turbo" })
-                    put("stream", false)
-                    put(
-                        "messages",
-                        JSONArray().apply {
-                            messages.forEach { message ->
-                                put(
-                                    JSONObject()
-                                        .put("role", message.role)
-                                        .put("content", message.content),
-                                )
-                            }
-                        },
-                    )
-                }
                 val request = Request.Builder()
-                    .url(resolveEndpoint(config.baseUrl))
-                    .addHeader("Authorization", "Bearer ${config.apiKey}")
+                    .url(resolveEndpoint(settings.baseUrl))
+                    .addHeader("Authorization", "Bearer ${settings.apiKey}")
                     .addHeader("Content-Type", "application/json")
-                    .post(payload.toString().toRequestBody(JSON))
+                    .post(buildPayload(settings, messages, stream = false).toRequestBody(JSON))
                     .build()
 
                 http.newCall(request).execute().use { response ->
@@ -144,6 +98,31 @@ class AiClient {
                 }
             }
         }
+
+    /** 构造 OpenAI 兼容请求体，注入完整参数。 */
+    private fun buildPayload(
+        settings: ApiSettings,
+        messages: List<AiMessage>,
+        stream: Boolean,
+    ): String = JSONObject().apply {
+        put("model", settings.model)
+        put("stream", stream)
+        put("temperature", settings.temperature.toDouble())
+        put("top_p", settings.topP.toDouble())
+        if (settings.maxTokens > 0) put("max_tokens", settings.maxTokens)
+        put(
+            "messages",
+            JSONArray().apply {
+                messages.forEach { message ->
+                    put(
+                        JSONObject()
+                            .put("role", message.role)
+                            .put("content", message.content),
+                    )
+                }
+            },
+        )
+    }.toString()
 
     /** 解析 SSE：逐行读取 `data:` 行，提取 choices[0].delta.content。 */
     private fun parseSseStream(response: Response, onDelta: (String) -> Unit) {
