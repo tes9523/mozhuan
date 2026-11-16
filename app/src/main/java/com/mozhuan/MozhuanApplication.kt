@@ -2,6 +2,7 @@ package com.mozhuan
 
 import android.app.Application
 import android.content.Context
+import com.mozhuan.data.repository.ProviderRepository
 import com.mozhuan.data.repository.SettingsRepository
 import com.mozhuan.data.repository.SkillRepository
 import com.mozhuan.data.repository.TokenUsageRepository
@@ -22,11 +23,13 @@ class AppContainer(context: Context) {
 
     val settingsRepository = SettingsRepository(preferences)
 
-    val skillRepository = SkillRepository(preferences)
+    val skillRepository = SkillRepository(applicationContext, preferences)
 
     val tokenUsageRepository = TokenUsageRepository(preferences)
 
     val aiClient = AiClient()
+
+    val providerRepository = ProviderRepository(preferences, aiClient)
 }
 
 class MozhuanApplication : Application() {

@@ -1,50 +1,51 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.mozhuan.ui.screen.settings
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,571 +54,853 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mozhuan.data.model.ApiSettings
+import com.mozhuan.data.model.ApiStyle
+import com.mozhuan.data.model.ModelEntry
+import com.mozhuan.data.model.ProviderInstance
+import com.mozhuan.data.model.ProviderType
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** 多服务商两页式管理：列表 → 基础信息 → 参数配置。 */
+/** 提供商管理：列表 → 类型 → 配置 → 模型参数，对齐 OpenMinis 的层级。 */
 @Composable
 fun ProviderConfigScreen(
     viewModel: ProviderConfigViewModel,
     onBack: () -> Unit,
 ) {
-    val providers by viewModel.providers.collectAsStateWithLifecycle()
-    val defaultProviderId by viewModel.defaultProviderId.collectAsStateWithLifecycle()
     val stage by viewModel.stage.collectAsStateWithLifecycle()
-    val draft by viewModel.draft.collectAsStateWithLifecycle()
+    when (stage) {
+        ProviderStage.LIST -> ProviderListContent(viewModel, onBack)
+        ProviderStage.TYPE -> ProviderTypeContent(viewModel)
+        ProviderStage.FORM -> ProviderFormContent(viewModel)
+        ProviderStage.MODEL -> ModelDetailContent(viewModel)
+    }
+}
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = {
-                Text(
-                    when (stage) {
-                        ProviderStage.LIST -> "管理提供商"
-                        ProviderStage.BASIC -> "基础信息"
-                        ProviderStage.PARAMS -> "参数配置"
-                    },
-                )
-            },
-            navigationIcon = {
-                IconButton(onClick = {
-                    if (stage == ProviderStage.LIST) onBack() else viewModel.back()
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                }
-            },
-            actions = {
-                if (stage == ProviderStage.LIST) {
-                    IconButton(onClick = viewModel::startNew) {
-                        Icon(Icons.Filled.Add, contentDescription = "新增服务商")
+// ── 服务商列表 ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderListContent(viewModel: ProviderConfigViewModel, onBack: () -> Unit) {
+    val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val selectedEntryId by viewModel.selectedEntryId.collectAsStateWithLifecycle()
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("提供商") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
-                }
-            },
-        )
-
-        when (stage) {
-            ProviderStage.LIST -> ProviderListStage(
-                providers = providers,
-                defaultProviderId = defaultProviderId,
-                onSetDefault = viewModel::setDefault,
-                onEdit = { viewModel.edit(it) },
-                onDelete = { viewModel.delete(it.id) },
-                onAdd = viewModel::startNew,
-            )
-            ProviderStage.BASIC -> BasicInfoStage(
-                draft = draft,
-                update = viewModel::update,
-                onSave = {
-                    viewModel.saveBasic()
+                },
+                actions = {
+                    IconButton(onClick = viewModel::startAdd) {
+                        Icon(Icons.Default.Add, contentDescription = "新增服务商")
+                    }
                 },
             )
-            ProviderStage.PARAMS -> ParamsStage(
-                viewModel = viewModel,
-                draft = draft,
-            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            if (providers.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp, vertical = 72.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "还没有服务商",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "点击右上角 + 添加 OpenAI、Anthropic、Gemini、OpenRouter 或任意 OpenAI 兼容服务商。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                item {
+                    SettingsGroup(
+                        footer = "关闭的服务商不会出现在对话页；左侧圆点标记当前使用的模型。",
+                    ) {
+                        providers.forEachIndexed { index, provider ->
+                            val providerEntries = entries.filter { it.providerId == provider.id }
+                            val activeTitle = providerEntries
+                                .firstOrNull { it.id == selectedEntryId }?.title
+                            ProviderListRow(
+                                provider = provider,
+                                modelCount = providerEntries.size,
+                                activeModel = activeTitle,
+                                onOpen = { viewModel.editProvider(provider) },
+                                onEnabledChange = { viewModel.setProviderEnabled(provider.id, it) },
+                            )
+                            if (index != providers.lastIndex) SettingsDivider()
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-// -------- 列表阶段 --------
-
 @Composable
-private fun ProviderListStage(
-    providers: List<ApiSettings>,
-    defaultProviderId: String,
-    onSetDefault: (String) -> Unit,
-    onEdit: (ApiSettings) -> Unit,
-    onDelete: (ApiSettings) -> Unit,
-    onAdd: () -> Unit,
+private fun ProviderListRow(
+    provider: ProviderInstance,
+    modelCount: Int,
+    activeModel: String?,
+    onOpen: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
 ) {
-    var pendingDelete by remember { mutableStateOf<ApiSettings?>(null) }
-    Column(
+    Row(
         modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(bottom = 24.dp),
+            .fillMaxWidth()
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (providers.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 24.dp)
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                    .padding(vertical = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Build,
-                    contentDescription = null,
-                    modifier = Modifier.size(36.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                )
-                Text(
-                    text = "尚未添加服务商",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "点击右上角 + 添加第一个服务商",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                )
-            }
-        } else {
-            SettingsGroup(title = "服务商列表") {
-                providers.forEachIndexed { index, provider ->
-                    if (index > 0) SettingsDivider()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onEdit(provider) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
+        ProviderBadge(provider.type)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp),
+        ) {
+            Text(
+                text = provider.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = buildString {
+                    append(provider.type.displayName)
+                    append(" · ")
+                    append(modelCount)
+                    append(" 个模型")
+                    if (activeModel != null) append(" · 当前 $activeModel")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Switch(
+            checked = provider.isEnabled,
+            onCheckedChange = onEnabledChange,
+        )
+    }
+}
+
+// ── 选择服务商类型 ───────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderTypeContent(viewModel: ProviderConfigViewModel) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("选择服务商类型") },
+                navigationIcon = {
+                    IconButton(onClick = viewModel::back) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
+            item {
+                SettingsGroup(
+                    title = "内置类型",
+                    footer = "自定义类型适用于 DeepSeek、Kimi、GLM、通义千问等任意 OpenAI 兼容接口。",
+                ) {
+                    ProviderType.entries.forEachIndexed { index, type ->
+                        Row(
                             modifier = Modifier
-                                .size(30.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primary),
-                            contentAlignment = Alignment.Center,
+                                .fillMaxWidth()
+                                .clickable { viewModel.chooseType(type) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            ProviderBadge(type)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 12.dp),
+                            ) {
+                                Text(type.displayName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = type.defaultBaseUrl.ifBlank { "需要手动填写请求地址" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             Icon(
-                                imageVector = Icons.Filled.Build,
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = Color.White,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 14.dp),
-                        ) {
-                            Text(
-                                text = provider.displayName,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = buildString {
-                                    if (provider.id == defaultProviderId) append("默认 · ")
-                                    append(provider.model.ifBlank { "未填写模型" })
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        RadioButton(
-                            selected = provider.id == defaultProviderId,
-                            onClick = { onSetDefault(provider.id) },
-                        )
-                        IconButton(onClick = { pendingDelete = provider }) {
-                            Icon(
-                                Icons.Filled.Delete,
-                                contentDescription = "删除 ${provider.displayName}",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                        }
+                        if (index != ProviderType.entries.lastIndex) SettingsDivider()
                     }
                 }
             }
         }
+    }
+}
 
-        SettingsGroup {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onAdd)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+// ── 服务商配置 ───────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ProviderFormContent(viewModel: ProviderConfigViewModel) {
+    val draft by viewModel.draftProvider.collectAsStateWithLifecycle()
+    val isNew by viewModel.isNew.collectAsStateWithLifecycle()
+    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val selectedEntryId by viewModel.selectedEntryId.collectAsStateWithLifecycle()
+    val testResult by viewModel.testResult.collectAsStateWithLifecycle()
+    val testing by viewModel.testing.collectAsStateWithLifecycle()
+    val loadingModels by viewModel.loadingModels.collectAsStateWithLifecycle()
+    val modelsError by viewModel.modelsError.collectAsStateWithLifecycle()
+    val newModelInput by viewModel.newModelInput.collectAsStateWithLifecycle()
+
+    val provider = draft ?: return
+    val type = provider.type
+    val providerEntries = entries.filter { it.providerId == provider.id }
+    var showKey by remember { mutableStateOf(false) }
+    var showDeleteProvider by remember { mutableStateOf(false) }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isNew) "新增服务商" else "编辑服务商") },
+                navigationIcon = {
+                    IconButton(onClick = viewModel::back) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            SettingsGroup(title = "基本信息") {
+                FormField(
+                    label = "服务商名称",
+                    value = provider.label,
+                    placeholder = type.displayName,
+                    onValueChange = { text -> viewModel.updateDraft { it.copy(label = text) } },
+                )
+                SettingsDivider()
+                ReadOnlyRow("类型", type.displayName)
+            }
+
+            SettingsGroup(
+                title = "凭证",
+                footer = "API Key 仅保存在本机；留空适用于无需鉴权的本地或内网服务。",
             ) {
-                Box(
+                OutlinedTextField(
+                    value = provider.apiKey,
+                    onValueChange = { text -> viewModel.updateDraft { it.copy(apiKey = text.trim()) } },
                     modifier = Modifier
-                        .size(30.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = Color.White,
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    label = { Text("API Key") },
+                    singleLine = true,
+                    visualTransformation = if (showKey) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    trailingIcon = {
+                        TextButton(onClick = { showKey = !showKey }) {
+                            Text(if (showKey) "隐藏" else "显示")
+                        }
+                    },
+                )
+            }
+
+            val hint = when (type) {
+                ProviderType.GEMINI ->
+                    "留空使用 Google 的 OpenAI 兼容地址；也可填写其他兼容网关。"
+                ProviderType.CUSTOM ->
+                    "填写完整的兼容地址。开启「追加 /v1」时，只在末尾没有 /v1 时自动补上。"
+                else ->
+                    "留空使用 ${type.displayName} 官方地址。开启「追加 /v1」时，只在末尾没有 /v1 时自动补上。"
+            }
+            SettingsGroup(title = "请求地址", footer = hint) {
+                OutlinedTextField(
+                    value = provider.customBaseUrl,
+                    onValueChange = { text ->
+                        viewModel.updateDraft { it.copy(customBaseUrl = text.trim()) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    label = { Text("自定义地址（可选）") },
+                    placeholder = {
+                        Text(type.defaultBaseUrl.ifBlank { "https://api.example.com" })
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                )
+                if (type != ProviderType.GEMINI) {
+                    SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("自动追加 /v1", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "关闭后地址原样使用",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = provider.appendV1Suffix,
+                            onCheckedChange = { checked ->
+                                viewModel.updateDraft { it.copy(appendV1Suffix = checked) }
+                            },
+                        )
+                    }
+                }
+                if (provider.effectiveBaseUrl.isNotBlank()) {
+                    SettingsDivider()
+                    ReadOnlyRow(
+                        label = "实际端点",
+                        value = provider.effectiveBaseUrl + when (type.apiStyle) {
+                            ApiStyle.OPENAI_CHAT -> "/chat/completions"
+                            ApiStyle.ANTHROPIC_MESSAGES -> "/messages"
+                        },
+                        mono = true,
                     )
                 }
+            }
+
+            if (isNew) {
+                SettingsGroup(
+                    title = "模型",
+                    footer = "保存服务商后即可拉取模型列表，并为每个模型单独配置生成参数。",
+                ) {
+                    ReadOnlyRow("模型", "保存后配置")
+                }
+            } else {
+                SettingsGroup(
+                    title = "模型",
+                    footer = "点击模型可单独设置 max_tokens、上下文轮数、temperature 与 top_p；左侧圆点用于切换当前模型。",
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "模型列表",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        if (loadingModels) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                        }
+                        TextButton(onClick = viewModel::refreshModels, enabled = !loadingModels) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("获取模型")
+                        }
+                    }
+
+                    providerEntries.forEach { entry ->
+                        SettingsDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.editEntry(entry) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = entry.id == selectedEntryId,
+                                onClick = { viewModel.selectEntry(entry.id) },
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 4.dp),
+                            ) {
+                                Text(
+                                    text = entry.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "max_tokens ${entry.maxTokens} · 上下文 ${entry.contextTurns} 轮",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+
+                    if (providerEntries.isEmpty()) {
+                        SettingsDivider()
+                        Text(
+                            text = "尚未添加模型，可拉取列表或手动添加。",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = newModelInput,
+                            onValueChange = viewModel::onNewModelInputChange,
+                            modifier = Modifier.weight(1f),
+                            label = { Text("模型名称") },
+                            placeholder = { Text("例如 deepseek-chat") },
+                            singleLine = true,
+                        )
+                        TextButton(
+                            onClick = { viewModel.addModel() },
+                            enabled = newModelInput.isNotBlank(),
+                        ) {
+                            Text("添加")
+                        }
+                    }
+
+                    val suggestions = type.defaultModels.filterNot { modelId ->
+                        providerEntries.any { it.modelId == modelId }
+                    }
+                    if (suggestions.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            suggestions.forEach { modelId ->
+                                AssistChip(
+                                    onClick = { viewModel.addModel(modelId) },
+                                    label = { Text(modelId, maxLines = 1) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (modelsError != null) {
                 Text(
-                    text = "新增服务商",
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 14.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = modelsError.orEmpty(),
+                    modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
+            }
+
+            SettingsGroup(title = "连接") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !testing, onClick = viewModel::testConnection)
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("测试连接", modifier = Modifier.weight(1f))
+                    if (testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            text = "运行",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                testResult?.let { result ->
+                    SettingsDivider()
+                    Text(
+                        text = result.message,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (result.success) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                    )
+                }
+            }
+
+            Button(
+                onClick = viewModel::saveProvider,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+            ) {
+                Text("保存服务商")
+            }
+
+            if (!isNew) {
+                TextButton(
+                    onClick = { showDeleteProvider = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("删除服务商", color = MaterialTheme.colorScheme.error)
+                }
             }
         }
     }
 
-    pendingDelete?.let { provider ->
+    if (showDeleteProvider) {
         AlertDialog(
-            onDismissRequest = { pendingDelete = null },
+            onDismissRequest = { showDeleteProvider = false },
             title = { Text("删除服务商") },
-            text = { Text("确定删除「${provider.displayName}」吗？其累计 Token 统计会保留。") },
+            text = { Text("将同时删除该服务商下的 ${providerEntries.size} 个模型配置，已累计的 Token 统计会保留。") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onDelete(provider)
-                        pendingDelete = null
+                        showDeleteProvider = false
+                        viewModel.deleteProvider()
                     },
                 ) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+                TextButton(onClick = { showDeleteProvider = false }) { Text("取消") }
             },
         )
     }
 }
 
-// -------- 基础信息阶段 --------
+// ── 模型参数 ─────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BasicInfoStage(
-    draft: ApiSettings,
-    update: ((ApiSettings) -> ApiSettings) -> Unit,
-    onSave: () -> Unit,
-) {
-    val context = LocalContext.current
-    var showApiKey by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(bottom = 24.dp),
-    ) {
-        SettingsGroup(title = "基础信息") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                OutlinedTextField(
-                    value = draft.name,
-                    onValueChange = { value -> update { it.copy(name = value) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务商名称") },
-                    placeholder = { Text("例如：DeepSeek") },
-                    singleLine = true,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = draft.baseUrl,
-                    onValueChange = { value -> update { it.copy(baseUrl = value) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("请求地址") },
-                    placeholder = { Text("https://api.example.com/v1/chat/completions") },
-                    singleLine = true,
-                )
-                Text(
-                    text = "请求地址，原样发送，程序不会自动追加路径。",
-                    modifier = Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = draft.apiKey,
-                    onValueChange = { value -> update { it.copy(apiKey = value) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Key") },
-                    placeholder = { Text("sk-...") },
-                    singleLine = true,
-                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        TextButton(onClick = { showApiKey = !showApiKey }) {
-                            Text(if (showApiKey) "隐藏" else "显示")
-                        }
-                    },
-                )
-            }
-        }
+private fun ModelDetailContent(viewModel: ProviderConfigViewModel) {
+    val entry by viewModel.draftEntry.collectAsStateWithLifecycle()
+    val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val model = entry ?: return
+    val provider = providers.firstOrNull { it.id == model.providerId }
+    var showDelete by remember { mutableStateOf(false) }
 
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
-            Button(
-                onClick = {
-                    onSave()
-                    Toast.makeText(context, "已保存基础信息，请继续配置模型与参数", Toast.LENGTH_SHORT).show()
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("模型参数") },
+                navigationIcon = {
+                    IconButton(onClick = viewModel::back) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
                 },
-                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            SettingsGroup(title = "模型") {
+                ReadOnlyRow("服务商", provider?.displayName ?: "未知")
+                SettingsDivider()
+                ReadOnlyRow("模型 ID", model.modelId, mono = true)
+                SettingsDivider()
+                FormField(
+                    label = "显示名称（可选）",
+                    value = model.displayName,
+                    placeholder = model.modelId,
+                    onValueChange = { text ->
+                        viewModel.updateEntryDraft { it.copy(displayName = text) }
+                    },
+                )
+            }
+
+            SettingsGroup(
+                title = "生成参数",
+                footer = "上下文轮数为 0 时只发送当前消息；max_tokens 为 0 时不发送该参数。",
             ) {
-                Text("下一步：配置模型与参数")
-            }
-        }
-    }
-}
-
-// -------- 参数配置阶段 --------
-
-private val MODEL_SUGGESTIONS = listOf(
-    "gpt-4o-mini",
-    "gpt-4.1-mini",
-    "deepseek-chat",
-    "deepseek-reasoner",
-    "qwen-plus",
-)
-
-@Composable
-private fun ParamsStage(
-    viewModel: ProviderConfigViewModel,
-    draft: ApiSettings,
-) {
-    val context = LocalContext.current
-    val models by viewModel.models.collectAsStateWithLifecycle()
-    val loadingModels by viewModel.loadingModels.collectAsStateWithLifecycle()
-    val modelsError by viewModel.modelsError.collectAsStateWithLifecycle()
-    val testing by viewModel.testing.collectAsStateWithLifecycle()
-    val testResult by viewModel.testResult.collectAsStateWithLifecycle()
-
-    var modelMenuExpanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(draft.id) {
-        // 每次进入参数页（或切换到新服务商）自动拉一次模型列表
-        viewModel.loadModels()
-    }
-
-    // 合并远程模型与本地建议，去重
-    val allModels = remember(models) {
-        (models + MODEL_SUGGESTIONS).distinct()
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .imePadding()
-            .padding(bottom = 24.dp),
-    ) {
-        SettingsGroup(title = "模型") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                ExposedDropdownMenuBox(
-                    expanded = modelMenuExpanded,
-                    onExpandedChange = { modelMenuExpanded = it },
-                ) {
-                    OutlinedTextField(
-                        value = draft.model,
-                        onValueChange = { value -> viewModel.update { it.copy(model = value) } },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryEditable),
-                        label = { Text("模型名称（可选择或手动输入）") },
-                        placeholder = { Text("输入自定义模型") },
-                        singleLine = true,
-                        trailingIcon = {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded)
-                        },
-                    )
-                    ExposedDropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false },
-                    ) {
-                        allModels.forEach { model ->
-                            DropdownMenuItem(
-                                text = { Text(model) },
-                                onClick = {
-                                    viewModel.update { it.copy(model = model) }
-                                    modelMenuExpanded = false
-                                },
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (loadingModels) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                        Text(
-                            text = " 正在获取模型列表…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else if (modelsError != null) {
-                        Text(
-                            text = modelsError.orEmpty(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else if (models.isNotEmpty()) {
-                        Text(
-                            text = "已获取 ${models.size} 个可用模型",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = viewModel::loadModels,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !loadingModels && draft.baseUrl.isNotBlank() && draft.apiKey.isNotBlank(),
-                ) {
-                    Text("重新获取模型列表")
-                }
-            }
-        }
-
-        SettingsGroup(title = "生成参数（当前服务商独立保存）") {
-            Column(modifier = Modifier.padding(14.dp)) {
-                OutlinedTextField(
-                    value = draft.maxTokens.takeIf { it > 0 }?.toString().orEmpty(),
+                NumberField(
+                    label = "max_tokens",
+                    value = model.maxTokens,
                     onValueChange = { value ->
-                        val number = value.filter { it.isDigit() }.take(6).toIntOrNull() ?: 0
-                        viewModel.update { it.copy(maxTokens = number) }
+                        viewModel.updateEntryDraft { it.copy(maxTokens = value) }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("max_tokens") },
-                    placeholder = { Text("2048") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = draft.contextTurns.toString(),
+                SettingsDivider()
+                NumberField(
+                    label = "上下文轮数",
+                    value = model.contextTurns,
                     onValueChange = { value ->
-                        val number = value.filter { it.isDigit() }.take(3).toIntOrNull() ?: 0
-                        viewModel.update { it.copy(contextTurns = number) }
+                        viewModel.updateEntryDraft { it.copy(contextTurns = value) }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("上下文轮数") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
-                Text(
-                    text = "0 表示不携带历史，仅发送当前消息",
-                    modifier = Modifier.padding(top = 4.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(Modifier.height(16.dp))
-                SliderField(
+                SettingsDivider()
+                SliderRow(
                     label = "temperature",
-                    valueText = String.format(Locale.US, "%.1f", draft.temperature),
-                    value = draft.temperature,
+                    value = model.temperature,
                     valueRange = 0f..2f,
-                    steps = 19,
+                    display = formatFloat(model.temperature),
                     onValueChange = { value ->
-                        val rounded = (value * 10).roundToInt() / 10f
-                        viewModel.update { it.copy(temperature = rounded) }
+                        viewModel.updateEntryDraft { it.copy(temperature = value) }
                     },
                 )
-
-                Spacer(Modifier.height(12.dp))
-                SliderField(
+                SettingsDivider()
+                SliderRow(
                     label = "top_p",
-                    valueText = String.format(Locale.US, "%.2f", draft.topP),
-                    value = draft.topP,
-                    valueRange = 0.05f..1f,
-                    steps = 18,
+                    value = model.topP,
+                    valueRange = 0f..1f,
+                    display = formatFloat(model.topP),
                     onValueChange = { value ->
-                        val rounded = (value * 20).roundToInt() / 20f
-                        viewModel.update { it.copy(topP = rounded.coerceIn(0.05f, 1f)) }
+                        viewModel.updateEntryDraft { it.copy(topP = value) }
                     },
                 )
             }
-        }
 
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
             Button(
-                onClick = {
-                    viewModel.save()
-                    Toast.makeText(context, "服务商配置已保存", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("保存")
-            }
-            Row(
+                onClick = viewModel::saveEntry,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
             ) {
-                OutlinedButton(
-                    onClick = {
-                        viewModel.resetParameters()
-                        Toast.makeText(context, "已恢复默认参数，保存后生效", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("重置")
-                }
-                OutlinedButton(
-                    onClick = viewModel::testConnection,
-                    modifier = Modifier.weight(1f),
-                    enabled = !testing,
-                ) {
-                    if (testing) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("测试连接")
-                    }
-                }
+                Text("保存模型参数")
             }
 
-            testResult?.let { result ->
-                Text(
-                    text = result.message,
-                    modifier = Modifier.padding(top = 12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (result.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                )
+            TextButton(
+                onClick = { showDelete = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+            ) {
+                Text("删除模型", color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+
+    if (showDelete) {
+        AlertDialog(
+            onDismissRequest = { showDelete = false },
+            title = { Text("删除模型") },
+            text = { Text("确定删除「${model.title}」及其参数配置？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDelete = false
+                        viewModel.deleteEntry()
+                    },
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDelete = false }) { Text("取消") }
+            },
+        )
+    }
+}
+
+// ── 小组件 ───────────────────────────────────────────────────────
+
+@Composable
+private fun ProviderBadge(type: ProviderType) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(providerColor(type)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = type.displayName.take(1).uppercase(),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
 @Composable
-private fun SliderField(
-    label: String,
-    valueText: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    onValueChange: (Float) -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+private fun providerColor(type: ProviderType): Color = when (type) {
+    ProviderType.OPENAI -> Color(0xFF10A37F)
+    ProviderType.ANTHROPIC -> Color(0xFFD97757)
+    ProviderType.GEMINI -> Color(0xFF4285F4)
+    ProviderType.OPENROUTER -> Color(0xFF6366F1)
+    ProviderType.XAI -> Color(0xFF1F2937)
+    ProviderType.CUSTOM -> MaterialTheme.colorScheme.secondary
+}
+
+@Composable
+private fun ReadOnlyRow(label: String, value: String, mono: Boolean = false) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
             text = label,
+            style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyMedium,
         )
         Text(
-            text = valueText,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
+            text = value,
+            style = if (mono) {
+                MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+            } else {
+                MaterialTheme.typography.bodyMedium
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(2f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
         )
     }
-    Slider(
+}
+
+@Composable
+private fun FormField(
+    label: String,
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+) {
+    OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        valueRange = valueRange,
-        steps = steps,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        label = { Text(label) },
+        placeholder = { Text(placeholder) },
+        singleLine = true,
     )
 }
+
+@Composable
+private fun NumberField(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+) {
+    OutlinedTextField(
+        value = value.toString(),
+        onValueChange = { text ->
+            val digits = text.filter { it.isDigit() }.take(7)
+            onValueChange(digits.toIntOrNull() ?: 0)
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
+}
+
+@Composable
+private fun SliderRow(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    display: String,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = display,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = { onValueChange((it * 100).roundToInt() / 100f) },
+            valueRange = valueRange,
+        )
+    }
+}
+
+private fun formatFloat(value: Float): String =
+    String.format(Locale.US, "%.2f", value)

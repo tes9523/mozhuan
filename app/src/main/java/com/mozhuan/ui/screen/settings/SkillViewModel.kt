@@ -5,19 +5,34 @@ import com.mozhuan.data.model.Skill
 import com.mozhuan.data.repository.SkillRepository
 import kotlinx.coroutines.flow.StateFlow
 
+/** 技能管理：扫描 SKILL.md、开关、编辑、导入导出。 */
 class SkillViewModel(
-    private val skillRepository: SkillRepository,
+    private val repository: SkillRepository,
 ) : ViewModel() {
 
-    val skills: StateFlow<List<Skill>> = skillRepository.skills
+    val skills: StateFlow<List<Skill>> = repository.skills
 
-    fun saveSkill(skill: Skill) = skillRepository.saveSkill(skill)
+    fun refresh() = repository.reload()
 
-    fun deleteSkill(skillId: String) = skillRepository.deleteSkill(skillId)
+    fun setEnabled(skillId: String, enabled: Boolean) =
+        repository.setEnabled(skillId, enabled)
 
-    fun setEnabled(skillId: String, enabled: Boolean) = skillRepository.setEnabled(skillId, enabled)
+    fun saveSkill(
+        id: String?,
+        name: String,
+        description: String,
+        body: String,
+        enabled: Boolean,
+    ) {
+        repository.saveSkill(id, name, description, body, enabled)
+    }
 
-    fun exportSkill(skill: Skill): String = skillRepository.exportSkill(skill)
+    fun deleteSkill(skillId: String) = repository.deleteSkill(skillId)
 
-    fun importSkill(json: String): Result<Skill> = skillRepository.importSkill(json)
+    fun importSkill(content: String, fallbackName: String?): Result<Skill> =
+        repository.importSkill(content, fallbackName)
+
+    fun exportSkill(skill: Skill): String = repository.exportMarkdown(skill)
+
+    fun skillPath(skillId: String): String = repository.skillMdPath(skillId)
 }

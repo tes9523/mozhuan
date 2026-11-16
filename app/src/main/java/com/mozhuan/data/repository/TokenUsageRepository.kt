@@ -1,6 +1,7 @@
 package com.mozhuan.data.repository
 
-import com.mozhuan.data.model.ApiSettings
+import com.mozhuan.data.model.ModelEntry
+import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.TokenUsage
 import com.mozhuan.data.model.UsageStat
 import com.mozhuan.storage.preferences.AppPreferences
@@ -19,19 +20,19 @@ class TokenUsageRepository(
 
     val cumulativeUsage: StateFlow<List<UsageStat>> = preferences.usageStats
 
-    fun record(settings: ApiSettings, usage: TokenUsage) {
+    fun record(provider: ProviderInstance, entry: ModelEntry, usage: TokenUsage) {
         if (usage.totalTokens <= 0) return
         _sessionUsage.update { it + usage }
 
         val current = cumulativeUsage.value
         val index = current.indexOfFirst {
-            it.providerId == settings.id && it.model == settings.model
+            it.providerId == provider.id && it.model == entry.modelId
         }
         val updated = if (index >= 0) {
             current.mapIndexed { itemIndex, stat ->
                 if (itemIndex == index) {
                     stat.copy(
-                        providerName = settings.displayName,
+                        providerName = provider.displayName,
                         inputTokens = stat.inputTokens + usage.inputTokens,
                         outputTokens = stat.outputTokens + usage.outputTokens,
                     )
@@ -41,9 +42,9 @@ class TokenUsageRepository(
             }
         } else {
             current + UsageStat(
-                providerId = settings.id,
-                providerName = settings.displayName,
-                model = settings.model,
+                providerId = provider.id,
+                providerName = provider.displayName,
+                model = entry.modelId,
                 inputTokens = usage.inputTokens,
                 outputTokens = usage.outputTokens,
             )

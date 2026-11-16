@@ -47,6 +47,7 @@ fun MozhuanNavHost(
                 factory = viewModelFactory {
                     initializer {
                         AiChatViewModel(
+                            providerRepository = container.providerRepository,
                             settingsRepository = container.settingsRepository,
                             skillRepository = container.skillRepository,
                             tokenUsageRepository = container.tokenUsageRepository,
@@ -60,6 +61,9 @@ fun MozhuanNavHost(
                 onOpenPersona = {
                     navController.navigate(Routes.PERSONA) { launchSingleTop = true }
                 },
+                onOpenProviders = {
+                    navController.navigate(Routes.PROVIDER) { launchSingleTop = true }
+                },
             )
         }
 
@@ -70,7 +74,7 @@ fun MozhuanNavHost(
         composable(Routes.SETTINGS) {
             val settingsViewModel: SettingsViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { SettingsViewModel(container.settingsRepository) }
+                    initializer { SettingsViewModel(container.settingsRepository, container.providerRepository) }
                 },
             )
             SettingsScreen(
@@ -85,8 +89,7 @@ fun MozhuanNavHost(
                 factory = viewModelFactory {
                     initializer {
                         ProviderConfigViewModel(
-                            settingsRepository = container.settingsRepository,
-                            aiClient = container.aiClient,
+                            repository = container.providerRepository,
                         )
                     }
                 },
@@ -112,7 +115,7 @@ fun MozhuanNavHost(
         composable(Routes.DISPLAY_SETTINGS) {
             val displayViewModel: SettingsViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { SettingsViewModel(container.settingsRepository) }
+                    initializer { SettingsViewModel(container.settingsRepository, container.providerRepository) }
                 },
             )
             DisplaySettingsScreen(

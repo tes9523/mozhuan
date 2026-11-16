@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,36 +12,40 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,7 +58,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ChatMessage
@@ -62,23 +69,30 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** AI 对话页：流式气泡、重新生成、复制、停止与清空确认。 */
+/** AI 对话页：模型切换、思考过程、流式气泡、重新生成、复制、停止与清空确认。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiChatScreen(
     viewModel: AiChatViewModel,
     onOpenPersona: () -> Unit,
+    onOpenProviders: () -> Unit = {},
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val displaySettings by viewModel.displaySettings.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val modelOptions by viewModel.modelOptions.collectAsStateWithLifecycle()
+    val selectedEntryId by viewModel.selectedEntryId.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     var showClearDialog by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+    val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val hideKeyboard = {
         keyboardController?.hide()
@@ -89,6 +103,7 @@ fun AiChatScreen(
         displaySettings.autoScroll,
         messages.size,
         messages.lastOrNull()?.content?.length,
+        messages.lastOrNull()?.reasoning?.length,
     ) {
         if (displaySettings.autoScroll && messages.isNotEmpty()) {
             listState.scrollToItem(messages.lastIndex)
@@ -100,24 +115,48 @@ fun AiChatScreen(
             .fillMaxSize()
             .imePadding(),
     ) {
-        // 紧凑顶栏：仅保留必要系统栏高度，消息区占满剩余空间。
+        // 紧凑顶栏：标题下方直接显示当前模型，取消无效留白。
         Surface(color = MaterialTheme.colorScheme.background) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
                     .height(48.dp)
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "AI 对话",
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 8.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                )
+                        .clickable { showModelSheet = true }
+                        .padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
+                ) {
+                    Text(
+                        text = "AI 对话",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = activeModel?.title ?: "未选择模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (activeModel == null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 220.dp),
+                        )
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = "切换模型",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 if (messages.isNotEmpty() && !isStreaming) {
                     TextButton(onClick = { showClearDialog = true }) { Text("清空") }
                 }
@@ -139,19 +178,39 @@ fun AiChatScreen(
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(top = 120.dp),
+                    modifier = Modifier.padding(top = 64.dp),
                 ) {
                     Text(
-                        text = "开始一段新的对话",
+                        text = if (activeModel == null) "还没有可用模型" else "开始一段新的对话",
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = "人格与已启用技能会自动合并发送，模型参数取自默认服务商",
+                        text = if (activeModel == null) {
+                            "添加服务商并选择一个模型后即可开始写作"
+                        } else {
+                            "人格与已启用技能会自动合并；当前使用 ${activeModel?.provider?.displayName} · ${activeModel?.entry?.title}"
+                        },
                         modifier = Modifier.padding(top = 8.dp, start = 32.dp, end = 32.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
+                    if (activeModel == null) {
+                        TextButton(onClick = onOpenProviders) {
+                            Text("去添加服务商")
+                        }
+                    } else {
+                        val entry = activeModel?.entry
+                        if (entry != null) {
+                            Text(
+                                text = "temperature ${entry.temperature} · top_p ${entry.topP} · 上下文 ${entry.contextTurns} 轮",
+                                modifier = Modifier.padding(top = 12.dp, start = 32.dp, end = 32.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
                 }
             }
         } else {
@@ -254,6 +313,106 @@ fun AiChatScreen(
         }
     }
 
+    if (showModelSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModelSheet = false },
+            sheetState = modelSheetState,
+        ) {
+            Text(
+                text = "选择模型",
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "模型参数在「设置 → 提供商」中单独配置",
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (modelOptions.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "还没有可用模型",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = {
+                            showModelSheet = false
+                            onOpenProviders()
+                        },
+                    ) {
+                        Text("去添加服务商")
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                ) {
+                    val grouped = modelOptions.groupBy { it.provider }
+                    grouped.forEach { (provider, options) ->
+                        item(key = "provider-${provider.id}") {
+                            Text(
+                                text = provider.displayName,
+                                modifier = Modifier.padding(
+                                    start = 24.dp,
+                                    end = 24.dp,
+                                    top = 16.dp,
+                                    bottom = 4.dp,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(options, key = { it.entry.id }) { option ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.selectModel(option.entry.id)
+                                        showModelSheet = false
+                                    }
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = option.entry.title,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "max_tokens ${option.entry.maxTokens} · 上下文 ${option.entry.contextTurns} 轮",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (option.entry.id == selectedEntryId) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = "当前模型",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -285,6 +444,8 @@ private fun MessageBubble(
     onRegenerate: () -> Unit,
 ) {
     val isUser = message.role == ChatRole.USER
+    var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
@@ -302,29 +463,76 @@ private fun MessageBubble(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-        } else if (message.content.isEmpty()) {
-            Row(
-                modifier = Modifier.padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+        } else {
+            if (message.reasoning.isNotBlank()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { reasoningExpanded = !reasoningExpanded },
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "思考过程",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Icon(
+                                imageVector = if (reasoningExpanded) {
+                                    Icons.Filled.KeyboardArrowUp
+                                } else {
+                                    Icons.Filled.KeyboardArrowDown
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (reasoningExpanded) {
+                            Text(
+                                text = message.reasoning,
+                                modifier = Modifier.padding(top = 4.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+
+            if (message.content.isEmpty()) {
+                if (message.reasoning.isBlank()) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = "正在生成…",
+                            modifier = Modifier.padding(start = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                // 助手消息不加气泡，直接以正文呈现（OpenMinis 结构）
                 Text(
-                    text = "正在生成…",
-                    modifier = Modifier.padding(start = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = message.content,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-        } else {
-            // 助手消息不加气泡，直接以正文呈现（OpenMinis 结构）
-            Text(
-                text = message.content,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 2.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
         }
 
         if (showTimestamp && message.content.isNotEmpty()) {

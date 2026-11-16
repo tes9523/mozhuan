@@ -51,11 +51,9 @@ fun SettingsScreen(
 ) {
     val themeModeValue by viewModel.themeMode.collectAsStateWithLifecycle()
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
-    val providers by viewModel.providers.collectAsStateWithLifecycle()
-    val defaultProviderId by viewModel.defaultProviderId.collectAsStateWithLifecycle()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
 
     val themeMode = ThemeMode.from(themeModeValue)
-    val defaultProvider = providers.firstOrNull { it.id == defaultProviderId } ?: providers.firstOrNull()
     var showThemeDialog by remember { mutableStateOf(false) }
     var showFontDialog by remember { mutableStateOf(false) }
 
@@ -72,11 +70,9 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Build,
                     title = "管理提供商",
-                    subtitle = if (defaultProvider?.isConfigured == true) {
-                        "默认：${defaultProvider.displayName} · ${defaultProvider.model}"
-                    } else {
-                        "新增、编辑、删除服务商并设置默认项"
-                    },
+                    subtitle = activeModel?.let {
+                        "当前：${it.provider.displayName} · ${it.title}"
+                    } ?: "新增服务商、拉取模型并选择当前模型",
                     onClick = { onNavigate(Routes.PROVIDER) },
                 )
                 SettingsDivider()
@@ -122,7 +118,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.AutoMirrored.Filled.List,
                     title = "技能",
-                    subtitle = "静态提示词模板、开关与单条导入导出",
+                    subtitle = "SKILL.md 文件、开关、编辑与导入导出",
                     onClick = { onNavigate(Routes.SKILLS) },
                 )
                 SettingsDivider()

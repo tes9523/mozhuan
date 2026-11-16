@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,8 @@ fun SharedFolderScreen(
     var importTarget by remember { mutableStateOf(ImportTarget.SKILL) }
     var preview by remember { mutableStateOf<TextDocument?>(null) }
     var pendingExport by remember { mutableStateOf<TextDocument?>(null) }
+
+    LaunchedEffect(Unit) { viewModel.refreshSkills() }
 
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -193,7 +196,7 @@ fun SharedFolderScreen(
                             preview = TextDocument(
                                 title = skill.name,
                                 fileName = "${TextFiles.safeFileName(skill.name)}.md",
-                                content = skill.prompt,
+                                content = viewModel.exportSkill(skill),
                             )
                         },
                     )

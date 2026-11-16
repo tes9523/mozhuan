@@ -15,7 +15,11 @@ class SharedFolderViewModel(
     val persona: StateFlow<String> = settingsRepository.persona
 
     fun importSkill(name: String, content: String): Skill =
-        skillRepository.importTextSkill(name, content)
+        skillRepository.importSkill(content, name).getOrThrow()
+
+    fun exportSkill(skill: Skill): String = skillRepository.exportMarkdown(skill)
+
+    fun refreshSkills() = skillRepository.reload()
 
     fun importPersona(content: String) = settingsRepository.setPersona(content)
 }
