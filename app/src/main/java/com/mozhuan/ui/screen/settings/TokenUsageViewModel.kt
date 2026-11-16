@@ -15,5 +15,7 @@ class TokenUsageViewModel(
 
     fun clearSession() = tokenUsageRepository.clearSession()
 
+    fun clearProvider(providerId: String) = tokenUsageRepository.clearProvider(providerId)
+
     fun clearAll() = tokenUsageRepository.clearAll()
 }

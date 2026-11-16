@@ -55,6 +55,11 @@ class TokenUsageRepository(
         _sessionUsage.value = TokenUsage()
     }
 
+    /** 清空某个服务商（含其全部模型）的累计统计。 */
+    fun clearProvider(providerId: String) {
+        preferences.saveUsageStats(cumulativeUsage.value.filterNot { it.providerId == providerId })
+    }
+
     fun clearAll() {
         _sessionUsage.value = TokenUsage()
         preferences.saveUsageStats(emptyList())

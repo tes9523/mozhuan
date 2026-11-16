@@ -3,6 +3,7 @@ package com.mozhuan.ui.screen.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,15 +27,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -113,6 +116,7 @@ fun AiChatScreen(
                         .weight(1f)
                         .padding(start = 8.dp),
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                 )
                 if (messages.isNotEmpty() && !isStreaming) {
                     TextButton(onClick = { showClearDialog = true }) { Text("清空") }
@@ -172,7 +176,6 @@ fun AiChatScreen(
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
-                        compact = displaySettings.compactMessages,
                         showTimestamp = displaySettings.showTimestamps,
                         canRegenerate = !isStreaming,
                         onCopy = { copyToClipboard(context, message.content) },
@@ -206,18 +209,46 @@ fun AiChatScreen(
                 placeholder = { Text("和 AI 聊聊你的故事…") },
                 minLines = 1,
                 maxLines = 6,
+                shape = RoundedCornerShape(22.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                ),
             )
             Spacer(Modifier.width(8.dp))
             if (isStreaming) {
-                FilledTonalButton(onClick = viewModel::stop) {
-                    Text("停止生成")
+                FilledIconButton(
+                    onClick = viewModel::stop,
+                    modifier = Modifier.size(44.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(
+                                MaterialTheme.colorScheme.onPrimaryContainer,
+                                RoundedCornerShape(2.dp),
+                            ),
+                    )
                 }
             } else {
-                Button(
+                FilledIconButton(
                     onClick = viewModel::send,
                     enabled = input.isNotBlank(),
+                    modifier = Modifier.size(44.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                    ),
                 ) {
-                    Text("发送")
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "发送")
                 }
             }
         }
@@ -248,7 +279,6 @@ fun AiChatScreen(
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
-    compact: Boolean,
     showTimestamp: Boolean,
     canRegenerate: Boolean,
     onCopy: () -> Unit,
@@ -259,39 +289,42 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
     ) {
-        Surface(
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            contentColor = if (isUser) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.widthIn(max = 320.dp),
-        ) {
-            if (message.content.isEmpty() && !isUser) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text(
-                        text = "正在生成…",
-                        modifier = Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            } else {
+        if (isUser) {
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.widthIn(max = 320.dp),
+            ) {
                 Text(
                     text = message.content,
-                    modifier = Modifier.padding(if (compact) 9.dp else 12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+        } else if (message.content.isEmpty()) {
+            Row(
+                modifier = Modifier.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Text(
+                    text = "正在生成…",
+                    modifier = Modifier.padding(start = 8.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            // 助手消息不加气泡，直接以正文呈现（OpenMinis 结构）
+            Text(
+                text = message.content,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
 
         if (showTimestamp && message.content.isNotEmpty()) {

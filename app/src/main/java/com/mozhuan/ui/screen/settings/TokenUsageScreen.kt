@@ -1,11 +1,14 @@
 package com.mozhuan.ui.screen.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -14,7 +17,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -25,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,7 +46,7 @@ fun TokenUsageScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Token 用量") },
+            title = { Text("Token 用量", fontWeight = FontWeight.SemiBold) },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -62,55 +66,97 @@ fun TokenUsageScreen(
                     output = session.outputTokens,
                     total = session.totalTokens,
                 )
-                OutlinedButton(
+                SettingsDivider()
+                ActionRow(
+                    title = "清空会话用量",
+                    color = MaterialTheme.colorScheme.error,
                     onClick = viewModel::clearSession,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Text("清空会话用量")
-                }
+                )
             }
 
-            SettingsGroup(title = "独立统计每个服务商输入输出 token") {
-                if (cumulative.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 8.dp),
+            ) {
+                Text(
+                    text = "按服务商独立统计",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            if (cumulative.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .padding(vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
                         text = "暂无累计统计",
-                        modifier = Modifier.padding(16.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                cumulative.forEachIndexed { index, stat ->
-                    if (index > 0) SettingsDivider()
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(
-                            text = stat.providerName.ifBlank { "未命名服务商" },
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Text(
-                            text = stat.model,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "输入 ${stat.inputTokens} · 输出 ${stat.outputTokens} · 总计 ${stat.totalTokens}",
-                            modifier = Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                if (cumulative.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = { showClearAllDialog = true },
+            } else {
+                cumulative.forEach { stat ->
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLow),
                     ) {
-                        Text("清空全部统计")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, end = 6.dp, top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stat.providerName.ifBlank { "未命名服务商" },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1,
+                                )
+                                Text(
+                                    text = stat.model.ifBlank { "未指定模型" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            }
+                            TextButton(onClick = { viewModel.clearProvider(stat.providerId) }) {
+                                Text("清空", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        UsageNumbers(
+                            input = stat.inputTokens,
+                            output = stat.outputTokens,
+                            total = stat.totalTokens,
+                            compact = true,
+                        )
                     }
                 }
+
+                Text(
+                    text = "清空全部统计",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        .clickable { showClearAllDialog = true }
+                        .padding(vertical = 14.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                )
             }
 
             Text(
@@ -145,25 +191,39 @@ fun TokenUsageScreen(
 }
 
 @Composable
-private fun UsageNumbers(input: Int, output: Int, total: Int) {
+private fun UsageNumbers(
+    input: Int,
+    output: Int,
+    total: Int,
+    compact: Boolean = false,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = if (compact) 10.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        UsageNumber("输入", input, Modifier.weight(1f))
-        UsageNumber("输出", output, Modifier.weight(1f))
-        UsageNumber("总计", total, Modifier.weight(1f))
+        UsageNumber("输入", input, Modifier.weight(1f), compact)
+        UsageNumber("输出", output, Modifier.weight(1f), compact)
+        UsageNumber("总计", total, Modifier.weight(1f), compact)
     }
 }
 
 @Composable
-private fun UsageNumber(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun UsageNumber(
+    label: String,
+    value: Int,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value.toString(),
-            style = MaterialTheme.typography.titleLarge,
+            style = if (compact) {
+                MaterialTheme.typography.titleMedium
+            } else {
+                MaterialTheme.typography.titleLarge
+            },
             color = MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
         )
@@ -173,4 +233,22 @@ private fun UsageNumber(label: String, value: Int, modifier: Modifier = Modifier
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun ActionRow(
+    title: String,
+    color: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = title,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = color,
+        textAlign = TextAlign.Center,
+    )
 }

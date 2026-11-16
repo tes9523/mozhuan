@@ -171,25 +171,21 @@ fun SettingsScreen(
                 )
             }
 
-            SettingsGroup(title = "网络") {
+            SettingsGroup(title = "其他") {
                 SettingsRow(
                     icon = Icons.Filled.Lock,
                     title = "代理设置",
                     subtitle = "预留入口",
                     onClick = { onOpenPlaceholder("代理设置") },
                 )
-            }
-
-            SettingsGroup(title = "后台与通知") {
+                SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Notifications,
-                    title = "后台运行",
+                    title = "后台与通知",
                     subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("后台运行") },
+                    onClick = { onOpenPlaceholder("后台与通知") },
                 )
-            }
-
-            SettingsGroup(title = "日志") {
+                SettingsDivider()
                 SettingsRow(
                     icon = Icons.AutoMirrored.Filled.List,
                     title = "运行日志",
@@ -202,7 +198,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "版本号",
-                    subtitle = "0.7.0",
+                    subtitle = "0.8.0",
                 )
                 SettingsDivider()
                 SettingsRow(

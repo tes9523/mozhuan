@@ -2,7 +2,9 @@ package com.mozhuan.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -12,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 
 private val LightColors = lightColorScheme(
@@ -27,9 +30,15 @@ private val LightColors = lightColorScheme(
     onBackground = Color(0xFF1B1C1A),
     surface = RicePaper,
     onSurface = Color(0xFF1B1C1A),
-    surfaceVariant = Color(0xFFE9E2D9),
-    onSurfaceVariant = Color(0xFF4A453F),
-    outline = Color(0xFF7C766E),
+    surfaceVariant = Color(0xFFF1EBE1),
+    onSurfaceVariant = Color(0xFF6E6A63),
+    surfaceContainerLowest = RicePaper,
+    surfaceContainerLow = Color(0xFFFFFFFF),
+    surfaceContainer = Color(0xFFFFFFFF),
+    surfaceContainerHigh = Color(0xFFF6F1E8),
+    surfaceContainerHighest = Color(0xFFF6F1E8),
+    outline = Color(0xFFE3DCD1),
+    outlineVariant = Color(0xFFE3DCD1),
 )
 
 private val DarkColors = darkColorScheme(
@@ -45,9 +54,24 @@ private val DarkColors = darkColorScheme(
     onBackground = Color(0xFFE5E2DC),
     surface = NightInk,
     onSurface = Color(0xFFE5E2DC),
-    surfaceVariant = Color(0xFF403A34),
-    onSurfaceVariant = Color(0xFFC9C3BB),
-    outline = Color(0xFF938F87),
+    surfaceVariant = Color(0xFF242724),
+    onSurfaceVariant = Color(0xFFA8AFA9),
+    surfaceContainerLowest = NightInk,
+    surfaceContainerLow = Color(0xFF1B1E1C),
+    surfaceContainer = Color(0xFF1B1E1C),
+    surfaceContainerHigh = Color(0xFF262A27),
+    surfaceContainerHighest = Color(0xFF262A27),
+    outline = Color(0xFF3A3E3B),
+    outlineVariant = Color(0xFF3A3E3B),
+)
+
+/** 全局圆角体系：与 OpenMinis 的 12 / 20 / 24 / 28 保持一致。 */
+private val MozhuanShapes = Shapes(
+    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp),
 )
 
 /**
@@ -81,6 +105,7 @@ fun MozhuanTheme(
     ) {
         MaterialTheme(
             colorScheme = if (darkTheme) DarkColors else LightColors,
+            shapes = MozhuanShapes,
             typography = MozhuanTypography,
             content = content,
         )

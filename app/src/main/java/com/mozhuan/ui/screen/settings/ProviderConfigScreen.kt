@@ -3,8 +3,10 @@
 package com.mozhuan.ui.screen.settings
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,10 +17,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -46,10 +51,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ApiSettings
@@ -83,6 +91,13 @@ fun ProviderConfigScreen(
                     if (stage == ProviderStage.LIST) onBack() else viewModel.back()
                 }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            },
+            actions = {
+                if (stage == ProviderStage.LIST) {
+                    IconButton(onClick = viewModel::startNew) {
+                        Icon(Icons.Filled.Add, contentDescription = "新增服务商")
+                    }
                 }
             },
         )
@@ -130,58 +145,128 @@ private fun ProviderListStage(
             .imePadding()
             .padding(bottom = 24.dp),
     ) {
-        SettingsGroup(title = "服务商列表") {
-            if (providers.isEmpty()) {
+        if (providers.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp)
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                    .padding(vertical = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Build,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                )
                 Text(
                     text = "尚未添加服务商",
-                    modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    text = "点击右上角 + 添加第一个服务商",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
             }
-            providers.forEachIndexed { index, provider ->
-                if (index > 0) SettingsDivider()
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onEdit(provider) }
-                        .padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(
-                        selected = provider.id == defaultProviderId,
-                        onClick = { onSetDefault(provider.id) },
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = provider.displayName,
-                            style = MaterialTheme.typography.bodyLarge,
+        } else {
+            SettingsGroup(title = "服务商列表") {
+                providers.forEachIndexed { index, provider ->
+                    if (index > 0) SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onEdit(provider) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Build,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White,
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 14.dp),
+                        ) {
+                            Text(
+                                text = provider.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = buildString {
+                                    if (provider.id == defaultProviderId) append("默认 · ")
+                                    append(provider.model.ifBlank { "未填写模型" })
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        RadioButton(
+                            selected = provider.id == defaultProviderId,
+                            onClick = { onSetDefault(provider.id) },
                         )
-                        Text(
-                            text = buildString {
-                                if (provider.id == defaultProviderId) append("默认 · ")
-                                append(provider.model.ifBlank { "未填写模型" })
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = { pendingDelete = provider }) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = "删除 ${provider.displayName}",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
+                        IconButton(onClick = { pendingDelete = provider }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除 ${provider.displayName}",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                 }
             }
-            OutlinedButton(
-                onClick = onAdd,
+        }
+
+        SettingsGroup {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(12.dp),
+                    .clickable(onClick = onAdd)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("新增服务商")
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = Color.White,
+                    )
+                }
+                Text(
+                    text = "新增服务商",
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 14.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
