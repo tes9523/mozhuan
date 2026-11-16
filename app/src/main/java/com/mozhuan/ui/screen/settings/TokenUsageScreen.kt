@@ -72,7 +72,7 @@ fun TokenUsageScreen(
                 }
             }
 
-            SettingsGroup(title = "累计用量（按服务商 + 模型）") {
+            SettingsGroup(title = "独立统计每个服务商输入输出 token") {
                 if (cumulative.isEmpty()) {
                     Text(
                         text = "暂无累计统计",

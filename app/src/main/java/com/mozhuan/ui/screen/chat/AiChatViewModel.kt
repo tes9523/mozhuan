@@ -165,7 +165,7 @@ class AiChatViewModel(
 
         val history = _messages.value.dropLast(1)
         val limited = if (contextTurns <= 0) {
-            history.takeLast(1)
+            emptyList()
         } else {
             history.takeLast(contextTurns * 2)
         }

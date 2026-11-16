@@ -102,6 +102,54 @@ class AiClient {
             }
         }
 
+    /** 拉取服务商支持的模型列表，失败返回空列表与中文错误。 */
+    suspend fun fetchModels(
+        baseUrl: String,
+        apiKey: String,
+    ): Result<List<String>> = withContext(Dispatchers.IO) {
+        try {
+            val url = buildModelsUrl(baseUrl.trim())
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .get()
+                .build()
+
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw HttpException(response.code, response.body?.string().orEmpty())
+                }
+                val body = JSONObject(response.body?.string().orEmpty())
+                val items = body.optJSONArray("data") ?: return@use Result.success(emptyList())
+                val names = ArrayList<String>(items.length())
+                for (i in 0 until items.length()) {
+                    val id = items.getJSONObject(i).optString("id", "").trim()
+                    if (id.isNotEmpty()) names += id
+                }
+                Result.success(names)
+            }
+        } catch (error: Exception) {
+            Result.failure(Exception(networkError(error)))
+        }
+    }
+
+    /** 从 chat/completions 端点推断 /v1/models 地址：
+     *  把路径末尾的 chat/completions 替换为 models；
+     *  若端点不含 chat/completions，则在末尾追加 /v1/models。 */
+    private fun buildModelsUrl(chatEndpoint: String): String {
+        val slash = chatEndpoint.indexOf('/')
+        if (slash < 0) return "$chatEndpoint/v1/models"
+        val lastSlash = chatEndpoint.lastIndexOf('/')
+        val suffix = chatEndpoint.substring(lastSlash + 1)
+        return if (suffix.equals("chat", ignoreCase = true) || suffix.equals("completions", ignoreCase = true)) {
+            val prev = chatEndpoint.substring(0, lastSlash)
+            val prevSlash = prev.lastIndexOf('/')
+            if (prevSlash >= 0) "${prev.substring(0, prevSlash)}/models" else "$prev/models"
+        } else {
+            "$chatEndpoint/v1/models"
+        }
+    }
+
     private fun buildPayload(
         settings: ApiSettings,
         messages: List<AiMessage>,

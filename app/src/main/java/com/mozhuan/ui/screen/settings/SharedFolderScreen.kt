@@ -118,11 +118,23 @@ fun SharedFolderScreen(
                 .padding(bottom = 24.dp),
         ) {
             Text(
-                text = "仅预览、导入和导出文本，不挂载外部目录。",
+                text = "这些目录用于存放书稿、技能、人格文件，支持导入导出，可自行管理。",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // 书稿目录占位（读写 /var/minis/book）
+            SettingsGroup(title = "书稿目录") {
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Filled.List,
+                    title = "书稿",
+                    subtitle = "读写 · /var/minis/book",
+                    onClick = {
+                        Toast.makeText(context, "书稿目录读写功能开发中", Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,7 +161,7 @@ fun SharedFolderScreen(
                 }
             }
 
-            SettingsGroup(title = "技能目录（${skills.size}）") {
+            SettingsGroup(title = "技能目录（只读 · /var/minis/skills）") {
                 if (skills.isEmpty()) {
                     Text(
                         text = "目录为空，可从手机导入 TXT / MD 文本。",
@@ -175,7 +187,7 @@ fun SharedFolderScreen(
                 }
             }
 
-            SettingsGroup(title = "人格目录") {
+            SettingsGroup(title = "人格目录（只读 · /var/minis/soul）") {
                 SettingsRow(
                     icon = Icons.Filled.Person,
                     title = "SOUL.md",

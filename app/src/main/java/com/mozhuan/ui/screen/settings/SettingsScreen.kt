@@ -141,31 +141,10 @@ fun SettingsScreen(
                 )
                 SettingsDivider()
                 SettingsRow(
-                    icon = Icons.Filled.Person,
-                    title = "子代理任务",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("子代理任务") },
-                )
-                SettingsDivider()
-                SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "记忆",
                     subtitle = "预留入口",
                     onClick = { onOpenPlaceholder("记忆") },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    icon = Icons.Filled.Settings,
-                    title = "MCP 集成",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("MCP 集成") },
-                )
-                SettingsDivider()
-                SettingsRow(
-                    icon = Icons.AutoMirrored.Filled.List,
-                    title = "环境变量",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("环境变量") },
                 )
             }
 
@@ -223,7 +202,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "版本号",
-                    subtitle = "0.6.0",
+                    subtitle = "0.7.0",
                 )
                 SettingsDivider()
                 SettingsRow(

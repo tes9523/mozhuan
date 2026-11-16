@@ -131,9 +131,12 @@ fun AiChatScreen(
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = { hideKeyboard() })
                     },
-                contentAlignment = Alignment.Center,
+                contentAlignment = Alignment.TopCenter,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(top = 120.dp),
+                ) {
                     Text(
                         text = "开始一段新的对话",
                         style = MaterialTheme.typography.titleMedium,
