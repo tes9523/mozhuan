@@ -26,32 +26,42 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -62,6 +72,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ChatMessage
 import com.mozhuan.data.model.ChatRole
@@ -88,6 +99,9 @@ fun AiChatScreen(
     val modelOptions by viewModel.modelOptions.collectAsStateWithLifecycle()
     val selectedEntryId by viewModel.selectedEntryId.collectAsStateWithLifecycle()
     val selectedGroupId by viewModel.selectedGroupId.collectAsStateWithLifecycle()
+    val sessions by viewModel.sessions.collectAsStateWithLifecycle()
+    val activeSessionId by viewModel.activeSessionId.collectAsStateWithLifecycle()
+    val toolStatus by viewModel.toolStatus.collectAsStateWithLifecycle()
     val currentGroup = activeGroup?.let { group ->
         groupOptions.firstOrNull { it.group.id == group.id }?.group
     }
@@ -96,8 +110,11 @@ fun AiChatScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
+    var pendingDeleteSessionId by remember { mutableStateOf<String?>(null) }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val hideKeyboard = {
@@ -116,6 +133,37 @@ fun AiChatScreen(
         }
     }
 
+    // 输入法弹出 / 输入框增高导致列表可视高度变化时，保持贴底，让内容跟随输入框上移。
+    LaunchedEffect(displaySettings.autoScroll, messages.size) {
+        snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .collect { height ->
+                if (height > 0 && displaySettings.autoScroll && messages.isNotEmpty()) {
+                    listState.scrollToItem(messages.lastIndex)
+                }
+            }
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SessionDrawer(
+                sessions = sessions,
+                activeSessionId = activeSessionId,
+                onNewSession = {
+                    hideKeyboard()
+                    viewModel.newSession()
+                    scope.launch { drawerState.close() }
+                },
+                onSelect = { sessionId ->
+                    hideKeyboard()
+                    viewModel.openSession(sessionId)
+                    scope.launch { drawerState.close() }
+                },
+                onDelete = { sessionId -> pendingDeleteSessionId = sessionId },
+                onClose = { scope.launch { drawerState.close() } },
+            )
+        },
+    ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -127,9 +175,17 @@ fun AiChatScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(
+                    onClick = {
+                        hideKeyboard()
+                        scope.launch { drawerState.open() }
+                    },
+                ) {
+                    Icon(Icons.Filled.Menu, contentDescription = "所有会话")
+                }
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -281,6 +337,17 @@ fun AiChatScreen(
             )
         }
 
+        if (toolStatus != null) {
+            Text(
+                text = toolStatus.orEmpty(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -337,6 +404,7 @@ fun AiChatScreen(
                 }
             }
         }
+    }
     }
 
     if (showModelSheet) {
@@ -528,6 +596,148 @@ fun AiChatScreen(
             },
         )
     }
+
+    val deletingSessionId = pendingDeleteSessionId
+    if (deletingSessionId != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteSessionId = null },
+            title = { Text("删除会话") },
+            text = { Text("该会话的全部消息将被删除，此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSession(deletingSessionId)
+                        pendingDeleteSessionId = null
+                    },
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteSessionId = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** 会话抽屉：新建、切换、删除；每个会话消息独立保存。 */
+@Composable
+private fun SessionDrawer(
+    sessions: List<com.mozhuan.data.model.ChatSession>,
+    activeSessionId: String,
+    onNewSession: () -> Unit,
+    onSelect: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val ordered = sessions.sortedByDescending { it.updatedAt }
+    ModalDrawerSheet {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+        ) {
+            Text(
+                text = "所有会话",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${sessions.size} 个会话 · 内容相互独立",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+            )
+            Surface(
+                onClick = onNewSession,
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "新建会话",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(ordered, key = { it.id }) { session ->
+                    val active = session.id == activeSessionId
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(session.id) }
+                            .padding(horizontal = 4.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 4.dp),
+                        ) {
+                            Text(
+                                text = session.displayTitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (active) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "${formatSessionTime(session.updatedAt)} · ${session.messages.size} 条消息",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                        IconButton(
+                            onClick = { onDelete(session.id) },
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "删除会话",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("收起")
+            }
+        }
+    }
+}
+
+private fun formatSessionTime(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val sameDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+        .format(Date(now)) == SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+        .format(Date(timestamp))
+    val pattern = if (sameDay) "HH:mm" else "MM-dd HH:mm"
+    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
 }
 
 @Composable

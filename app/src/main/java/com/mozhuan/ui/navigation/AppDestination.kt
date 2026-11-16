@@ -56,6 +56,12 @@ object Routes {
     /** 运行日志。 */
     const val LOGS = "settings/logs"
 
+    /** 可用工具。 */
+    const val TOOLS = "settings/tools"
+
+    /** 记忆管理。 */
+    const val MEMORY = "settings/memory"
+
     /** 通用占位子页。 */
     const val PLACEHOLDER = "settings/placeholder/{title}"
 

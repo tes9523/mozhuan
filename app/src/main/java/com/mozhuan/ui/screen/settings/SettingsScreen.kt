@@ -143,15 +143,15 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Build,
                     title = "可用工具",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("可用工具") },
+                    subtitle = "文件读写、网页读取与记忆写入开关",
+                    onClick = { onNavigate(Routes.TOOLS) },
                 )
                 SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "记忆",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("记忆") },
+                    subtitle = "全局记忆与按天记录，自动注入对话",
+                    onClick = { onNavigate(Routes.MEMORY) },
                 )
             }
 
@@ -193,10 +193,11 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Notifications,
                     title = "后台与通知",
-                    subtitle = if (notificationSettings.notifyOnComplete || notificationSettings.notifyOnError) {
-                        "生成完成 / 失败提醒已配置"
-                    } else {
-                        "通知已全部关闭"
+                    subtitle = when {
+                        notificationSettings.keepAlive -> "后台保活已开启 · 生成提醒"
+                        notificationSettings.notifyOnComplete || notificationSettings.notifyOnError ->
+                            "生成完成 / 失败提醒"
+                        else -> "通知已全部关闭"
                     },
                     onClick = { onNavigate(Routes.BACKGROUND) },
                 )
@@ -213,7 +214,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "版本号",
-                    subtitle = "0.9.1",
+                    subtitle = "0.9.2",
                 )
                 SettingsDivider()
                 SettingsRow(

@@ -3,21 +3,28 @@ package com.mozhuan.ui.screen.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mozhuan.data.model.ActiveModel
+import com.mozhuan.data.model.ApiStyle
 import com.mozhuan.data.model.ChatMessage
 import com.mozhuan.data.model.ChatRole
+import com.mozhuan.data.model.ChatSession
 import com.mozhuan.data.model.DisplaySettings
 import com.mozhuan.data.model.GroupRoutingStrategy
 import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ModelGroup
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.TokenUsage
+import com.mozhuan.data.repository.MemoryRepository
 import com.mozhuan.data.repository.ProviderRepository
+import com.mozhuan.data.repository.SessionRepository
 import com.mozhuan.data.repository.SettingsRepository
 import com.mozhuan.data.repository.SkillRepository
 import com.mozhuan.data.repository.TokenUsageRepository
 import com.mozhuan.net.AiClient
 import com.mozhuan.net.StreamChunk
+import com.mozhuan.net.ToolCall
 import com.mozhuan.net.model.AiMessage
+import com.mozhuan.net.model.AiToolCall
+import com.mozhuan.net.tool.ToolRegistry
 import com.mozhuan.system.log.AppLog
 import com.mozhuan.system.notify.AppForeground
 import com.mozhuan.system.notify.CompletionNotifier
@@ -29,7 +36,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 对话页可选的模型（服务商 + 模型条目）。 */
@@ -50,11 +56,22 @@ class AiChatViewModel(
     private val settingsRepository: SettingsRepository,
     private val skillRepository: SkillRepository,
     private val tokenUsageRepository: TokenUsageRepository,
+    private val sessionRepository: SessionRepository,
+    private val memoryRepository: MemoryRepository,
+    private val toolRegistry: ToolRegistry,
     private val aiClient: AiClient,
     private val completionNotifier: CompletionNotifier,
 ) : ViewModel() {
 
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val sessions: StateFlow<List<ChatSession>> = sessionRepository.sessions
+    val activeSessionId: StateFlow<String> = sessionRepository.activeSessionId
+
+    private val _messages = MutableStateFlow(
+        sessionRepository.sessions.value
+            .firstOrNull { it.id == sessionRepository.activeSessionId.value }
+            ?.messages
+            .orEmpty(),
+    )
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     private val _input = MutableStateFlow("")
@@ -65,6 +82,10 @@ class AiChatViewModel(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** 工具调用状态提示，例如「正在调用工具：读取文件」。 */
+    private val _toolStatus = MutableStateFlow<String?>(null)
+    val toolStatus: StateFlow<String?> = _toolStatus.asStateFlow()
 
     val displaySettings: StateFlow<DisplaySettings> = settingsRepository.displaySettings
     val selectedEntryId: StateFlow<String> = providerRepository.selectedEntryId
@@ -118,6 +139,9 @@ class AiChatViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var streamJob: Job? = null
+
+    /** 当前生成所属会话，用于丢弃切换会话后迟到的流式增量。 */
+    private var generationSessionId: String? = null
     private var cancelledByUser = false
 
     fun onInputChange(text: String) {
@@ -136,9 +160,49 @@ class AiChatViewModel(
 
     fun clearMessages() {
         if (_isStreaming.value) return
+        setMessages(emptyList())
+        _error.value = null
+        tokenUsageRepository.clearSession()
+    }
+
+    // ── 会话 ─────────────────────────────────────────────────────
+
+    fun newSession() {
+        if (_isStreaming.value) stop()
+        sessionRepository.createSession()
         _messages.value = emptyList()
         _error.value = null
         tokenUsageRepository.clearSession()
+    }
+
+    fun openSession(sessionId: String) {
+        if (sessionId == sessionRepository.activeSessionId.value) return
+        if (_isStreaming.value) stop()
+        sessionRepository.selectSession(sessionId)
+        _messages.value = sessionRepository.sessions.value
+            .firstOrNull { it.id == sessionId }
+            ?.messages
+            .orEmpty()
+        _error.value = null
+        tokenUsageRepository.clearSession()
+    }
+
+    fun deleteSession(sessionId: String) {
+        if (_isStreaming.value) stop()
+        sessionRepository.deleteSession(sessionId)
+        _messages.value = sessionRepository.sessions.value
+            .firstOrNull { it.id == sessionRepository.activeSessionId.value }
+            ?.messages
+            .orEmpty()
+        _error.value = null
+        tokenUsageRepository.clearSession()
+    }
+
+    /** 更新当前会话消息并同步落盘（流式期间由仓库做防抖）。 */
+    private fun setMessages(messages: List<ChatMessage>) {
+        _messages.value = messages
+        val sessionId = sessionRepository.activeSessionId.value
+        if (sessionId.isNotBlank()) sessionRepository.updateMessages(sessionId, messages)
     }
 
     fun send() {
@@ -155,10 +219,12 @@ class AiChatViewModel(
         }
 
         _input.value = ""
-        _messages.update {
-            it + ChatMessage(role = ChatRole.USER, content = text) +
-                ChatMessage(role = ChatRole.ASSISTANT, content = "")
-        }
+        setMessages(
+            _messages.value +
+                ChatMessage(role = ChatRole.USER, content = text) +
+                ChatMessage(role = ChatRole.ASSISTANT, content = ""),
+        )
+        sessionRepository.ensureTitle(sessionRepository.activeSessionId.value, text)
         startGeneration(candidates)
     }
 
@@ -177,7 +243,7 @@ class AiChatViewModel(
             return
         }
 
-        _messages.value = current.take(index) + ChatMessage(role = ChatRole.ASSISTANT, content = "")
+        setMessages(current.take(index) + ChatMessage(role = ChatRole.ASSISTANT, content = ""))
         startGeneration(candidates)
     }
 
@@ -191,6 +257,7 @@ class AiChatViewModel(
 
     override fun onCleared() {
         streamJob?.cancel()
+        sessionRepository.flush()
         super.onCleared()
     }
 
@@ -214,6 +281,7 @@ class AiChatViewModel(
         cancelledByUser = false
         _error.value = null
         _isStreaming.value = true
+        generationSessionId = sessionRepository.activeSessionId.value
         val group = activeGroup.value
 
         streamJob = viewModelScope.launch {
@@ -270,48 +338,99 @@ class AiChatViewModel(
             } finally {
                 _isStreaming.value = false
                 streamJob = null
+                _toolStatus.value = null
                 if (cancelledByUser) finishEmptyMessage()
+                sessionRepository.flush()
+                generationSessionId = null
             }
         }
     }
 
     private suspend fun streamFrom(model: ActiveModel) {
         var reportedUsage = TokenUsage()
-        aiClient.streamChat(
-            provider = model.provider,
-            entry = model.entry,
-            messages = buildApiMessages(model.entry.contextTurns),
-            systemPrompt = buildSystemPrompt(),
-        ).collect { chunk ->
-            when (chunk) {
-                is StreamChunk.Text -> appendToLast { it.copy(content = it.content + chunk.text) }
-                is StreamChunk.Reasoning -> appendToLast {
-                    it.copy(reasoning = it.reasoning + chunk.text)
-                }
-                is StreamChunk.Usage -> {
-                    val delta = TokenUsage(
-                        inputTokens = (chunk.inputTokens - reportedUsage.inputTokens)
-                            .coerceAtLeast(0),
-                        outputTokens = (chunk.outputTokens - reportedUsage.outputTokens)
-                            .coerceAtLeast(0),
-                    )
-                    tokenUsageRepository.record(model.provider, model.entry, delta)
-                    reportedUsage = TokenUsage(
-                        inputTokens = maxOf(reportedUsage.inputTokens, chunk.inputTokens),
-                        outputTokens = maxOf(reportedUsage.outputTokens, chunk.outputTokens),
-                    )
-                }
-                StreamChunk.Completed -> Unit
-            }
+        val history = buildApiMessages(model.entry.contextTurns)
+        val systemPrompt = buildSystemPrompt()
+        val tools = if (model.provider.type.apiStyle == ApiStyle.OPENAI_CHAT) {
+            toolRegistry.specs(settingsRepository.toolSettings.value)
+        } else {
+            emptyList()
         }
+        val transcript = mutableListOf<AiMessage>()
+        var round = 0
+        while (true) {
+            val calls = mutableListOf<ToolCall>()
+            val roundText = StringBuilder()
+            aiClient.streamChat(
+                provider = model.provider,
+                entry = model.entry,
+                messages = history + transcript,
+                systemPrompt = systemPrompt,
+                tools = tools,
+            ).collect { chunk ->
+                when (chunk) {
+                    is StreamChunk.Text -> {
+                        roundText.append(chunk.text)
+                        appendToLast { it.copy(content = it.content + chunk.text) }
+                    }
+                    is StreamChunk.Reasoning -> appendToLast {
+                        it.copy(reasoning = it.reasoning + chunk.text)
+                    }
+                    is StreamChunk.ToolCalls -> calls += chunk.calls
+                    is StreamChunk.Usage -> {
+                        val delta = TokenUsage(
+                            inputTokens = (chunk.inputTokens - reportedUsage.inputTokens)
+                                .coerceAtLeast(0),
+                            outputTokens = (chunk.outputTokens - reportedUsage.outputTokens)
+                                .coerceAtLeast(0),
+                        )
+                        tokenUsageRepository.record(model.provider, model.entry, delta)
+                        reportedUsage = TokenUsage(
+                            inputTokens = maxOf(reportedUsage.inputTokens, chunk.inputTokens),
+                            outputTokens = maxOf(reportedUsage.outputTokens, chunk.outputTokens),
+                        )
+                    }
+                    StreamChunk.Completed -> Unit
+                }
+            }
+            if (calls.isEmpty()) break
+            if (round >= MAX_TOOL_ROUNDS) {
+                appendToLast {
+                    val prefix = if (it.content.isBlank()) "" else "\n\n"
+                    it.copy(content = it.content + prefix + "（已达到工具调用轮数上限）")
+                }
+                break
+            }
+            transcript += AiMessage(
+                role = "assistant",
+                content = roundText.toString(),
+                toolCalls = calls.map { AiToolCall(it.id, it.name, it.arguments) },
+            )
+            calls.forEach { call ->
+                _toolStatus.value = "正在调用工具：${toolLabel(call.name)}"
+                val result = toolRegistry.execute(call.name, call.arguments)
+                AppLog.info("工具 ${call.name} 执行完成")
+                transcript += AiMessage(role = "tool", content = result, toolCallId = call.id)
+            }
+            _toolStatus.value = null
+            round++
+        }
+        _toolStatus.value = null
+    }
+
+    private fun toolLabel(name: String): String = when (name) {
+        "list_files" -> "查看目录"
+        "read_file" -> "读取文件"
+        "write_file" -> "写入书稿"
+        "fetch_url" -> "读取网页"
+        "save_memory" -> "写入记忆"
+        else -> name
     }
 
     /** 故障转移重试前清空上一条失败尝试产生的半截内容。 */
     private fun resetLastAssistant() {
-        _messages.update { list ->
-            if (list.isEmpty()) return@update list
-            list.dropLast(1) + ChatMessage(role = ChatRole.ASSISTANT, content = "")
-        }
+        val list = _messages.value
+        if (list.isEmpty()) return
+        setMessages(list.dropLast(1) + ChatMessage(role = ChatRole.ASSISTANT, content = ""))
     }
 
     private fun finishEmptyMessage() {
@@ -325,13 +444,17 @@ class AiChatViewModel(
     }
 
     private fun appendToLast(transform: (ChatMessage) -> ChatMessage) {
-        _messages.update { list ->
-            if (list.isEmpty()) return@update list
-            list.dropLast(1) + transform(list.last())
+        // 生成期间切换 / 删除会话后，丢弃旧会话迟到的增量，避免串到新会话。
+        val generatingFor = generationSessionId
+        if (generatingFor != null && generatingFor != sessionRepository.activeSessionId.value) {
+            return
         }
+        val list = _messages.value
+        if (list.isEmpty()) return
+        setMessages(list.dropLast(1) + transform(list.last()))
     }
 
-    /** 人格 + 所有启用技能，合并为系统提示词。 */
+    /** 人格 + 所有启用技能 + 记忆，合并为系统提示词。 */
     private fun buildSystemPrompt(): String = buildString {
         val persona = settingsRepository.currentPersona().trim()
         if (persona.isNotEmpty()) append(persona)
@@ -346,6 +469,11 @@ class AiChatViewModel(
                 }
                 append(skill.body.trim()).append('\n')
             }
+        }
+        val memory = memoryRepository.promptFragment()
+        if (memory.isNotBlank()) {
+            if (isNotEmpty()) append("\n\n")
+            append(memory)
         }
     }
 
@@ -395,5 +523,10 @@ class AiChatViewModel(
             }
         }
         return null
+    }
+
+    private companion object {
+        /** 单次回复内最多执行几轮工具调用，避免死循环。 */
+        const val MAX_TOOL_ROUNDS = 4
     }
 }

@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mozhuan.storage.preferences.AppPreferences
 import com.mozhuan.system.notify.AppForeground
+import com.mozhuan.system.service.WritingSessionService
 import com.mozhuan.ui.MozhuanRoot
 
 class MainActivity : ComponentActivity() {
@@ -30,6 +31,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppForeground.onStart()
+        val container = (application as MozhuanApplication).container
+        if (container.preferences.notificationSettings.value.keepAlive) {
+            WritingSessionService.startKeepAlive(this)
+        }
     }
 
     override fun onStop() {

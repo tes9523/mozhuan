@@ -32,6 +32,9 @@ class SkillViewModel(
     fun importSkill(content: String, fallbackName: String?): Result<Skill> =
         repository.importSkill(content, fallbackName)
 
+    fun importArchive(input: java.io.InputStream): Result<Skill> =
+        repository.importArchive(input)
+
     fun exportSkill(skill: Skill): String = repository.exportMarkdown(skill)
 
     fun skillPath(skillId: String): String = repository.skillMdPath(skillId)

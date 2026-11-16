@@ -1,6 +1,12 @@
 package com.mozhuan.ui.screen.settings
 
+import android.Manifest
+import android.content.Intent
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,14 +29,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.system.notify.CompletionNotifier
+import com.mozhuan.system.power.BatteryOptimizationHelper
 
-/** 后台与通知：生成完成 / 失败提醒，以及测试通知。 */
+/** 后台与通知：生成完成 / 失败提醒、后台保活与电池优化白名单。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackgroundSettingsScreen(
@@ -39,6 +49,18 @@ fun BackgroundSettingsScreen(
 ) {
     val settings by viewModel.notificationSettings.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var ignoringBatteryOptimizations by remember {
+        mutableStateOf(viewModel.isIgnoringBatteryOptimizations())
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
+    val batteryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        ignoringBatteryOptimizations = viewModel.isIgnoringBatteryOptimizations()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -75,6 +97,60 @@ fun BackgroundSettingsScreen(
                 )
             }
 
+            SettingsGroup(title = "后台保活") {
+                NotificationSwitchRow(
+                    title = "后台保活",
+                    subtitle = "常驻前台服务，降低切到后台后被系统清理的概率",
+                    checked = settings.keepAlive,
+                    onCheckedChange = { enabled ->
+                        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        viewModel.setKeepAlive(enabled)
+                    },
+                )
+                SettingsDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val intent = BatteryOptimizationHelper.requestIgnoreIntent(context)
+                            runCatching { batteryLauncher.launch(intent) }
+                                .onFailure {
+                                    runCatching {
+                                        batteryLauncher.launch(
+                                            BatteryOptimizationHelper.appDetailsIntent(context),
+                                        )
+                                    }
+                                }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("电池优化白名单", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = if (ignoringBatteryOptimizations) {
+                                "已忽略电池优化，后台更稳定"
+                            } else {
+                                "未加入白名单，部分系统仍可能清理后台"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (ignoringBatteryOptimizations) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    Text(
+                        text = if (ignoringBatteryOptimizations) "已开启" else "去设置",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
             SettingsGroup(title = "通知") {
                 NotificationSwitchRow(
                     title = "生成完成提醒",
@@ -107,7 +183,7 @@ fun BackgroundSettingsScreen(
 }
 
 @Composable
-private fun NotificationSwitchRow(
+fun NotificationSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,

@@ -1,6 +1,9 @@
 package com.mozhuan.storage.preferences
 
 import android.content.Context
+import com.mozhuan.data.model.ChatMessage
+import com.mozhuan.data.model.ChatRole
+import com.mozhuan.data.model.ChatSession
 import com.mozhuan.data.model.DisplaySettings
 import com.mozhuan.data.model.GroupRoutingStrategy
 import com.mozhuan.data.model.ModelEntry
@@ -10,6 +13,7 @@ import com.mozhuan.data.model.NotificationSettings
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
 import com.mozhuan.data.model.ProxySettings
+import com.mozhuan.data.model.ToolSettings
 import com.mozhuan.data.model.UsageStat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -451,6 +455,7 @@ class AppPreferences(context: Context) {
         NotificationSettings(
             notifyOnComplete = prefs.getBoolean(KEY_NOTIFY_COMPLETE, true),
             notifyOnError = prefs.getBoolean(KEY_NOTIFY_ERROR, true),
+            keepAlive = prefs.getBoolean(KEY_KEEP_ALIVE, false),
         ),
     )
     val notificationSettings: StateFlow<NotificationSettings> = _notificationSettings.asStateFlow()
@@ -459,8 +464,131 @@ class AppPreferences(context: Context) {
         prefs.edit()
             .putBoolean(KEY_NOTIFY_COMPLETE, settings.notifyOnComplete)
             .putBoolean(KEY_NOTIFY_ERROR, settings.notifyOnError)
+            .putBoolean(KEY_KEEP_ALIVE, settings.keepAlive)
             .apply()
         _notificationSettings.value = settings
+    }
+
+    /** 可用工具开关。 */
+    private val _toolSettings = MutableStateFlow(
+        ToolSettings(
+            readFiles = prefs.getBoolean(KEY_TOOL_READ, true),
+            writeFiles = prefs.getBoolean(KEY_TOOL_WRITE, false),
+            webFetch = prefs.getBoolean(KEY_TOOL_WEB, true),
+            memoryWrite = prefs.getBoolean(KEY_TOOL_MEMORY, true),
+        ),
+    )
+    val toolSettings: StateFlow<ToolSettings> = _toolSettings.asStateFlow()
+
+    fun setToolSettings(settings: ToolSettings) {
+        prefs.edit()
+            .putBoolean(KEY_TOOL_READ, settings.readFiles)
+            .putBoolean(KEY_TOOL_WRITE, settings.writeFiles)
+            .putBoolean(KEY_TOOL_WEB, settings.webFetch)
+            .putBoolean(KEY_TOOL_MEMORY, settings.memoryWrite)
+            .apply()
+        _toolSettings.value = settings
+    }
+
+    /** 记忆总开关：关闭后不再把记忆文件注入系统提示词。 */
+    private val _memoryEnabled = MutableStateFlow(prefs.getBoolean(KEY_MEMORY_ENABLED, true))
+    val memoryEnabled: StateFlow<Boolean> = _memoryEnabled.asStateFlow()
+
+    fun setMemoryEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MEMORY_ENABLED, enabled).apply()
+        _memoryEnabled.value = enabled
+    }
+
+    // ── 会话 ─────────────────────────────────────────────────────
+
+    private val _sessions = MutableStateFlow(loadSessions())
+    val sessions: StateFlow<List<ChatSession>> = _sessions.asStateFlow()
+
+    private val _activeSessionId = MutableStateFlow(
+        prefs.getString(KEY_ACTIVE_SESSION_ID, "").orEmpty()
+            .takeIf { id -> _sessions.value.any { it.id == id } }
+            ?: _sessions.value.firstOrNull()?.id.orEmpty(),
+    )
+    val activeSessionId: StateFlow<String> = _activeSessionId.asStateFlow()
+
+    fun saveSessions(sessions: List<ChatSession>) {
+        _sessions.value = sessions
+        prefs.edit().putString(KEY_SESSIONS, encodeSessions(sessions)).apply()
+    }
+
+    fun setActiveSession(sessionId: String) {
+        prefs.edit().putString(KEY_ACTIVE_SESSION_ID, sessionId).apply()
+        _activeSessionId.value = sessionId
+    }
+
+    private fun encodeSessions(sessions: List<ChatSession>): String = JSONArray().apply {
+        sessions.forEach { session ->
+            put(
+                JSONObject()
+                    .put("id", session.id)
+                    .put("title", session.title)
+                    .put("createdAt", session.createdAt)
+                    .put("updatedAt", session.updatedAt)
+                    .put(
+                        "messages",
+                        JSONArray().apply {
+                            session.messages.forEach { message ->
+                                put(
+                                    JSONObject()
+                                        .put("id", message.id)
+                                        .put("role", message.role.name)
+                                        .put("content", message.content)
+                                        .put("reasoning", message.reasoning)
+                                        .put("createdAt", message.createdAt),
+                                )
+                            }
+                        },
+                    ),
+            )
+        }
+    }.toString()
+
+    private fun loadSessions(): List<ChatSession> {
+        val stored = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(stored)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val messages = item.optJSONArray("messages")
+                    add(
+                        ChatSession(
+                            id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                            title = item.optString("title"),
+                            messages = buildList {
+                                if (messages != null) {
+                                    for (m in 0 until messages.length()) {
+                                        val message = messages.optJSONObject(m) ?: continue
+                                        add(
+                                            ChatMessage(
+                                                id = message.optString("id")
+                                                    .ifBlank { UUID.randomUUID().toString() },
+                                                role = ChatRole.entries
+                                                    .firstOrNull { it.name == message.optString("role") }
+                                                    ?: ChatRole.ASSISTANT,
+                                                content = message.optString("content"),
+                                                reasoning = message.optString("reasoning"),
+                                                createdAt = message.optLong(
+                                                    "createdAt",
+                                                    System.currentTimeMillis(),
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                }
+                            },
+                            createdAt = item.optLong("createdAt", System.currentTimeMillis()),
+                            updatedAt = item.optLong("updatedAt", System.currentTimeMillis()),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 
     private val _mountedFolders = MutableStateFlow(loadMountedFolders())
@@ -573,6 +701,14 @@ class AppPreferences(context: Context) {
         private const val KEY_PROXY_PORT = "proxy_port"
         private const val KEY_NOTIFY_COMPLETE = "notify_on_complete"
         private const val KEY_NOTIFY_ERROR = "notify_on_error"
+        private const val KEY_KEEP_ALIVE = "keep_alive_enabled"
+        private const val KEY_TOOL_READ = "tool_read_files"
+        private const val KEY_TOOL_WRITE = "tool_write_files"
+        private const val KEY_TOOL_WEB = "tool_web_fetch"
+        private const val KEY_TOOL_MEMORY = "tool_memory_write"
+        private const val KEY_MEMORY_ENABLED = "memory_enabled"
+        private const val KEY_SESSIONS = "chat_sessions_json"
+        private const val KEY_ACTIVE_SESSION_ID = "active_session_id"
         private const val KEY_MOUNTED_FOLDERS = "mounted_folders_json"
         private const val KEY_PROVIDERS = "providers_json"
         private const val KEY_DEFAULT_PROVIDER_ID = "default_provider_id"

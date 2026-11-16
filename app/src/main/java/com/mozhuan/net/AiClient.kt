@@ -5,6 +5,7 @@ import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProxySettings
 import com.mozhuan.net.model.AiMessage
+import com.mozhuan.net.tool.ToolSpec
 import com.mozhuan.system.log.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -31,13 +32,21 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlin.math.round
 
-/** 流式增量：正文、思考过程与 Token 用量。 */
+/** 流式增量：正文、思考过程、工具调用与 Token 用量。 */
 sealed interface StreamChunk {
     data class Text(val text: String) : StreamChunk
     data class Reasoning(val text: String) : StreamChunk
     data class Usage(val inputTokens: Int, val outputTokens: Int) : StreamChunk
+    data class ToolCalls(val calls: List<ToolCall>) : StreamChunk
     data object Completed : StreamChunk
 }
+
+/** 模型请求的一次工具调用。 */
+data class ToolCall(
+    val id: String,
+    val name: String,
+    val arguments: String,
+)
 
 /** 网络层错误，message 已转为可直接展示的中文提示。 */
 class AiException(message: String) : Exception(message)
@@ -86,8 +95,9 @@ class AiClient(
         entry: ModelEntry,
         messages: List<AiMessage>,
         systemPrompt: String? = null,
+        tools: List<ToolSpec> = emptyList(),
     ): Flow<StreamChunk> {
-        val request = buildChatRequest(provider, entry, messages, systemPrompt, stream = true)
+        val request = buildChatRequest(provider, entry, messages, systemPrompt, tools, stream = true)
         return flow {
             val call = http().newCall(request)
             val job = currentCoroutineContext()[Job]
@@ -130,7 +140,7 @@ class AiClient(
         systemPrompt: String? = null,
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val request = buildChatRequest(provider, entry, messages, systemPrompt, stream = false)
+            val request = buildChatRequest(provider, entry, messages, systemPrompt, emptyList(), stream = false)
             http().newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw AiException(httpError(response.code, response.body?.string().orEmpty()))
@@ -202,6 +212,7 @@ class AiClient(
         entry: ModelEntry,
         messages: List<AiMessage>,
         systemPrompt: String?,
+        tools: List<ToolSpec>,
         stream: Boolean,
     ): Request {
         val base = provider.effectiveBaseUrl
@@ -211,7 +222,7 @@ class AiClient(
             ApiStyle.ANTHROPIC_MESSAGES -> "/messages"
         }
         val payload = when (provider.type.apiStyle) {
-            ApiStyle.OPENAI_CHAT -> openAiPayload(entry, messages, systemPrompt, stream)
+            ApiStyle.OPENAI_CHAT -> openAiPayload(entry, messages, systemPrompt, tools, stream)
             ApiStyle.ANTHROPIC_MESSAGES -> anthropicPayload(entry, messages, systemPrompt, stream)
         }
         val builder = Request.Builder()
@@ -238,6 +249,7 @@ class AiClient(
         entry: ModelEntry,
         messages: List<AiMessage>,
         systemPrompt: String?,
+        tools: List<ToolSpec>,
         stream: Boolean,
     ): JSONObject = JSONObject().apply {
         put("model", entry.modelId)
@@ -254,6 +266,10 @@ class AiClient(
             )
         }
         if (stream) put("stream_options", JSONObject().put("include_usage", true))
+        if (tools.isNotEmpty()) {
+            put("tools", JSONArray().apply { tools.forEach { put(it.toJson()) } })
+            put("tool_choice", "auto")
+        }
         put(
             "messages",
             JSONArray().apply {
@@ -261,9 +277,46 @@ class AiClient(
                     put(JSONObject().put("role", "system").put("content", prompt))
                 }
                 messages.forEach { message ->
-                    val content = message.content.trim()
-                    if (content.isNotEmpty()) {
-                        put(JSONObject().put("role", message.role).put("content", content))
+                    when {
+                        message.role == "tool" -> put(
+                            JSONObject()
+                                .put("role", "tool")
+                                .put("tool_call_id", message.toolCallId.orEmpty())
+                                .put("content", message.content),
+                        )
+                        message.toolCalls.isNotEmpty() -> put(
+                            JSONObject()
+                                .put("role", "assistant")
+                                .put(
+                                    "content",
+                                    message.content.trim().takeIf { it.isNotEmpty() }
+                                        ?: JSONObject.NULL,
+                                )
+                                .put(
+                                    "tool_calls",
+                                    JSONArray().apply {
+                                        message.toolCalls.forEach { call ->
+                                            put(
+                                                JSONObject()
+                                                    .put("id", call.id)
+                                                    .put("type", "function")
+                                                    .put(
+                                                        "function",
+                                                        JSONObject()
+                                                            .put("name", call.name)
+                                                            .put("arguments", call.arguments),
+                                                    ),
+                                            )
+                                        }
+                                    },
+                                ),
+                        )
+                        else -> {
+                            val content = message.content.trim()
+                            if (content.isNotEmpty()) {
+                                put(JSONObject().put("role", message.role).put("content", content))
+                            }
+                        }
                     }
                 }
             },
@@ -345,24 +398,30 @@ class AiClient(
         response: Response,
         style: ApiStyle,
     ) {
+        val accumulator = ToolCallAccumulator()
         val source = response.body?.source() ?: throw AiException("响应体为空")
         source.use { src ->
-            while (!src.exhausted()) {
+            loop@ while (!src.exhausted()) {
                 currentCoroutineContext().ensureActive()
                 val line = src.readUtf8Line() ?: break
                 if (!line.startsWith("data:")) continue
                 val data = line.removePrefix("data:").trim()
                 if (data.isEmpty()) continue
-                if (data == "[DONE]") return
+                if (data == "[DONE]") break@loop
                 when (style) {
-                    ApiStyle.OPENAI_CHAT -> emitOpenAiChunk(data)
-                    ApiStyle.ANTHROPIC_MESSAGES -> if (emitAnthropicChunk(data)) return
+                    ApiStyle.OPENAI_CHAT -> emitOpenAiChunk(data, accumulator)
+                    ApiStyle.ANTHROPIC_MESSAGES -> if (emitAnthropicChunk(data)) break@loop
                 }
             }
         }
+        accumulator.build().takeIf { it.isNotEmpty() }
+            ?.let { emit(StreamChunk.ToolCalls(it)) }
     }
 
-    private suspend fun kotlinx.coroutines.flow.FlowCollector<StreamChunk>.emitOpenAiChunk(data: String) {
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<StreamChunk>.emitOpenAiChunk(
+        data: String,
+        accumulator: ToolCallAccumulator,
+    ) {
         val item = runCatching { JSONObject(data) }.getOrNull() ?: return
         item.optJSONObject("error")?.let { error ->
             throw AiException(error.optString("message", "服务商返回错误"))
@@ -371,13 +430,54 @@ class AiClient(
 
         val choices = item.optJSONArray("choices") ?: return
         if (choices.length() == 0) return
-        val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: return
+        val choice = choices.optJSONObject(0) ?: return
+        val delta = choice.optJSONObject("delta") ?: return
         delta.optString("reasoning_content").takeIf { it.isNotEmpty() }
             ?.let { emit(StreamChunk.Reasoning(it)) }
         delta.optString("reasoning").takeIf { it.isNotEmpty() }
             ?.let { emit(StreamChunk.Reasoning(it)) }
         delta.optString("content").takeIf { it.isNotEmpty() }
             ?.let { emit(StreamChunk.Text(it)) }
+        delta.optJSONArray("tool_calls")?.let { calls ->
+            for (index in 0 until calls.length()) {
+                val part = calls.optJSONObject(index) ?: continue
+                val function = part.optJSONObject("function")
+                accumulator.append(
+                    index = part.optInt("index", index),
+                    id = part.optString("id").takeIf { it.isNotBlank() },
+                    name = function?.optString("name")?.takeIf { it.isNotBlank() },
+                    arguments = function?.optString("arguments"),
+                )
+            }
+        }
+    }
+
+    /** 按 index 拼接流式下发的工具调用名称与参数。 */
+    private class ToolCallAccumulator {
+        private class Partial(
+            var id: String = "",
+            var name: String = "",
+            val arguments: StringBuilder = StringBuilder(),
+        )
+
+        private val parts = sortedMapOf<Int, Partial>()
+
+        fun append(index: Int, id: String?, name: String?, arguments: String?) {
+            val partial = parts.getOrPut(index) { Partial() }
+            if (id != null) partial.id = id
+            if (name != null) partial.name = name
+            if (!arguments.isNullOrEmpty()) partial.arguments.append(arguments)
+        }
+
+        fun build(): List<ToolCall> = parts.values
+            .filter { it.name.isNotBlank() }
+            .mapIndexed { index, partial ->
+                ToolCall(
+                    id = partial.id.ifBlank { "call_$index" },
+                    name = partial.name,
+                    arguments = partial.arguments.toString().ifBlank { "{}" },
+                )
+            }
     }
 
     /** 返回 true 表示收到 message_stop。 */

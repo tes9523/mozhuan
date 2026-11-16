@@ -36,6 +36,39 @@ object NotificationHelper {
         chapterTitle: String,
         status: String,
     ): Notification {
+        val text = "《$bookTitle》 · $chapterTitle · $status"
+        return base(context)
+            .setContentTitle("墨撰 · 写作中")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .addAction(0, "结束写作", stopPendingIntent(context))
+            .build()
+    }
+
+    /** 后台保活常驻通知。 */
+    fun buildKeepAlive(context: Context): Notification =
+        base(context)
+            .setContentTitle("墨撰 · 后台运行中")
+            .setContentText("已开启后台保活，退出应用后仍保持连接")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("已开启后台保活，退出应用后仍保持连接。可在「设置 → 后台与通知」中关闭。"),
+            )
+            .addAction(0, "停止保活", keepAliveStopPendingIntent(context))
+            .build()
+
+    private fun keepAliveStopPendingIntent(context: Context): PendingIntent {
+        val stopIntent = Intent(context, WritingSessionService::class.java)
+            .setAction(WritingSessionService.ACTION_STOP_KEEP_ALIVE)
+        return PendingIntent.getService(
+            context,
+            2,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun base(context: Context): NotificationCompat.Builder {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -45,27 +78,24 @@ object NotificationHelper {
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val stopIntent = Intent(context, WritingSessionService::class.java)
-            .setAction(WritingSessionService.ACTION_STOP)
-        val stopPendingIntent = PendingIntent.getService(
-            context,
-            1,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val text = "《$bookTitle》 · $chapterTitle · $status"
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_write)
-            .setContentTitle("墨撰 · 写作中")
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(contentIntent)
-            .addAction(0, "结束写作", stopPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+    }
+
+    private fun stopPendingIntent(context: Context): PendingIntent {
+        val stopIntent = Intent(context, WritingSessionService::class.java)
+            .setAction(WritingSessionService.ACTION_STOP)
+        return PendingIntent.getService(
+            context,
+            1,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

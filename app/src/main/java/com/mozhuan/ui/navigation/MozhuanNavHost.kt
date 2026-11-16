@@ -21,6 +21,8 @@ import com.mozhuan.ui.screen.settings.BackupRestoreScreen
 import com.mozhuan.ui.screen.settings.BackupRestoreViewModel
 import com.mozhuan.ui.screen.settings.DisplaySettingsScreen
 import com.mozhuan.ui.screen.settings.LogScreen
+import com.mozhuan.ui.screen.settings.MemoryScreen
+import com.mozhuan.ui.screen.settings.MemoryViewModel
 import com.mozhuan.ui.screen.settings.ModelGroupsScreen
 import com.mozhuan.ui.screen.settings.ModelGroupsViewModel
 import com.mozhuan.ui.screen.settings.MountedFoldersScreen
@@ -40,6 +42,8 @@ import com.mozhuan.ui.screen.settings.SkillScreen
 import com.mozhuan.ui.screen.settings.SkillViewModel
 import com.mozhuan.ui.screen.settings.TokenUsageScreen
 import com.mozhuan.ui.screen.settings.TokenUsageViewModel
+import com.mozhuan.ui.screen.settings.ToolsScreen
+import com.mozhuan.ui.screen.settings.ToolsViewModel
 
 /** 全局导航图：三个顶层 Tab + 设置功能页与占位页。 */
 @Composable
@@ -62,6 +66,9 @@ fun MozhuanNavHost(
                             settingsRepository = container.settingsRepository,
                             skillRepository = container.skillRepository,
                             tokenUsageRepository = container.tokenUsageRepository,
+                            sessionRepository = container.sessionRepository,
+                            memoryRepository = container.memoryRepository,
+                            toolRegistry = container.toolRegistry,
                             aiClient = container.aiClient,
                             completionNotifier = container.completionNotifier,
                         )
@@ -233,7 +240,12 @@ fun MozhuanNavHost(
         composable(Routes.BACKGROUND) {
             val backgroundViewModel: BackgroundSettingsViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { BackgroundSettingsViewModel(container.settingsRepository) }
+                    initializer {
+                        BackgroundSettingsViewModel(
+                            context = container.applicationContext,
+                            settingsRepository = container.settingsRepository,
+                        )
+                    }
                 },
             )
             BackgroundSettingsScreen(
@@ -244,6 +256,30 @@ fun MozhuanNavHost(
 
         composable(Routes.LOGS) {
             LogScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.TOOLS) {
+            val toolsViewModel: ToolsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { ToolsViewModel(container.settingsRepository) }
+                },
+            )
+            ToolsScreen(
+                viewModel = toolsViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.MEMORY) {
+            val memoryViewModel: MemoryViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { MemoryViewModel(container.memoryRepository) }
+                },
+            )
+            MemoryScreen(
+                viewModel = memoryViewModel,
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(

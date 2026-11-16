@@ -18,6 +18,18 @@ data class ChatMessage(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+/** 独立会话：每个会话拥有自己的消息列表，互不影响。 */
+data class ChatSession(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String = "新会话",
+    val messages: List<ChatMessage> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+) {
+    val displayTitle: String
+        get() = title.trim().ifBlank { "新会话" }
+}
+
 /** 主题模式。 */
 enum class ThemeMode {
     SYSTEM, LIGHT, DARK;
@@ -195,7 +207,20 @@ data class ProxySettings(
 data class NotificationSettings(
     val notifyOnComplete: Boolean = true,
     val notifyOnError: Boolean = true,
+    /** 后台保活：开启后常驻前台服务，降低被系统清理的概率。 */
+    val keepAlive: Boolean = false,
 )
+
+/** 可用工具开关：关闭后不再向模型发送该工具的 schema。 */
+data class ToolSettings(
+    val readFiles: Boolean = true,
+    val writeFiles: Boolean = false,
+    val webFetch: Boolean = true,
+    val memoryWrite: Boolean = true,
+) {
+    val enabledCount: Int
+        get() = listOf(readFiles, writeFiles, webFetch, memoryWrite).count { it }
+}
 
 /** 已挂载的外部文件夹（SAF 目录授权）。 */
 data class MountedFolder(

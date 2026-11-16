@@ -5,6 +5,7 @@ import com.mozhuan.data.model.MountedFolder
 import com.mozhuan.data.model.NotificationSettings
 import com.mozhuan.data.model.ProxySettings
 import com.mozhuan.data.model.ThemeMode
+import com.mozhuan.data.model.ToolSettings
 import com.mozhuan.storage.preferences.AppPreferences
 import kotlinx.coroutines.flow.StateFlow
 
@@ -20,6 +21,7 @@ class SettingsRepository(
     val proxySettings: StateFlow<ProxySettings> = preferences.proxySettings
     val notificationSettings: StateFlow<NotificationSettings> = preferences.notificationSettings
     val mountedFolders: StateFlow<List<MountedFolder>> = preferences.mountedFolders
+    val toolSettings: StateFlow<ToolSettings> = preferences.toolSettings
 
     fun currentThemeMode(): ThemeMode = ThemeMode.from(themeMode.value)
 
@@ -37,6 +39,8 @@ class SettingsRepository(
 
     fun setNotificationSettings(settings: NotificationSettings) =
         preferences.setNotificationSettings(settings)
+
+    fun setToolSettings(settings: ToolSettings) = preferences.setToolSettings(settings)
 
     fun addMountedFolder(folder: MountedFolder) {
         if (mountedFolders.value.any { it.uri == folder.uri }) return

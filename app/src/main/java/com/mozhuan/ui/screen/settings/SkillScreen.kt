@@ -69,24 +69,52 @@ fun SkillScreen(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            val fallbackName = TextFiles.withoutExtension(TextFiles.displayName(context, uri))
-            runCatching { TextFiles.read(context, uri) }
-                .onFailure {
-                    Toast.makeText(context, "读取失败：${it.message}", Toast.LENGTH_SHORT).show()
+            val displayName = TextFiles.displayName(context, uri)
+            val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull().orEmpty()
+            if (displayName.endsWith(".zip", ignoreCase = true) || mimeType.contains("zip")) {
+                val stream = runCatching { context.contentResolver.openInputStream(uri) }
+                    .getOrNull()
+                if (stream == null) {
+                    Toast.makeText(context, "读取失败：无法打开所选文件", Toast.LENGTH_SHORT).show()
+                } else {
+                    stream.use { input ->
+                        viewModel.importArchive(input)
+                            .onSuccess { skill ->
+                                Toast.makeText(
+                                    context,
+                                    "已导入技能「${skill.name}」（含附件），默认停用",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            .onFailure {
+                                Toast.makeText(
+                                    context,
+                                    "导入失败：${it.message}",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                    }
                 }
-                .onSuccess { content ->
-                    viewModel.importSkill(content, fallbackName)
-                        .onSuccess { skill ->
-                            Toast.makeText(
-                                context,
-                                "已导入技能「${skill.name}」，默认停用",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                        .onFailure {
-                            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
-                        }
-                }
+            } else {
+                val fallbackName = TextFiles.withoutExtension(displayName)
+                runCatching { TextFiles.read(context, uri) }
+                    .onFailure {
+                        Toast.makeText(context, "读取失败：${it.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    .onSuccess { content ->
+                        viewModel.importSkill(content, fallbackName)
+                            .onSuccess { skill ->
+                                Toast.makeText(
+                                    context,
+                                    "已导入技能「${skill.name}」，默认停用",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            .onFailure {
+                                Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+                            }
+                    }
+            }
         }
     }
 
@@ -114,7 +142,14 @@ fun SkillScreen(
                 TextButton(
                     onClick = {
                         importLauncher.launch(
-                            arrayOf("text/markdown", "text/plain", "application/octet-stream"),
+                            arrayOf(
+                                "text/markdown",
+                                "text/plain",
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/octet-stream",
+                                "*/*",
+                            ),
                         )
                     },
                 ) {
