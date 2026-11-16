@@ -38,6 +38,24 @@ object Routes {
     /** AGENT 人格系统（全屏子页）。 */
     const val PERSONA = "settings/persona"
 
+    /** 模型组管理。 */
+    const val MODEL_GROUPS = "settings/model_groups"
+
+    /** 挂载外部文件夹。 */
+    const val MOUNTED_FOLDERS = "settings/mounted_folders"
+
+    /** 备份与恢复。 */
+    const val BACKUP_RESTORE = "settings/backup_restore"
+
+    /** 代理设置。 */
+    const val PROXY = "settings/proxy"
+
+    /** 后台与通知。 */
+    const val BACKGROUND = "settings/background"
+
+    /** 运行日志。 */
+    const val LOGS = "settings/logs"
+
     /** 通用占位子页。 */
     const val PLACEHOLDER = "settings/placeholder/{title}"
 

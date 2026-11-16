@@ -3,7 +3,9 @@ package com.mozhuan.net
 import com.mozhuan.data.model.ApiStyle
 import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ProviderInstance
+import com.mozhuan.data.model.ProxySettings
 import com.mozhuan.net.model.AiMessage
+import com.mozhuan.system.log.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,10 +23,13 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
+import kotlin.math.round
 
 /** 流式增量：正文、思考过程与 Token 用量。 */
 sealed interface StreamChunk {
@@ -44,13 +49,37 @@ class AiException(message: String) : Exception(message)
  * - SSE 流式解析正文、思考过程与 usage，支持取消；
  * - 模型列表从 /models 拉取。
  */
-class AiClient {
+class AiClient(
+    private val proxyProvider: () -> ProxySettings = { ProxySettings() },
+) {
 
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
+    @Volatile
+    private var cachedProxy: ProxySettings? = null
+
+    @Volatile
+    private var cachedHttp: OkHttpClient? = null
+
+    /** 代理设置变化时重建客户端，未变化时复用连接池。 */
+    private fun http(): OkHttpClient {
+        val settings = proxyProvider()
+        cachedHttp?.let { if (cachedProxy == settings) return it }
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+        if (settings.enabled && settings.host.isNotBlank() && settings.port in 1..65535) {
+            val type = if (settings.type == ProxySettings.PROXY_SOCKS) {
+                Proxy.Type.SOCKS
+            } else {
+                Proxy.Type.HTTP
+            }
+            builder.proxy(Proxy(type, InetSocketAddress(settings.host.trim(), settings.port)))
+        }
+        return builder.build().also {
+            cachedProxy = settings
+            cachedHttp = it
+        }
+    }
 
     fun streamChat(
         provider: ProviderInstance,
@@ -60,10 +89,11 @@ class AiClient {
     ): Flow<StreamChunk> {
         val request = buildChatRequest(provider, entry, messages, systemPrompt, stream = true)
         return flow {
-            val call = http.newCall(request)
+            val call = http().newCall(request)
             val job = currentCoroutineContext()[Job]
             job?.invokeOnCompletion { if (job?.isCancelled == true) call.cancel() }
             try {
+                AppLog.info("请求 ${provider.displayName} · ${entry.modelId}")
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         throw AiException(httpError(response.code, response.body?.string().orEmpty()))
@@ -75,14 +105,19 @@ class AiClient {
                         emitSse(response, provider.type.apiStyle)
                     }
                 }
+                AppLog.info("完成 ${provider.displayName} · ${entry.modelId}")
                 emit(StreamChunk.Completed)
             } catch (error: CancellationException) {
+                AppLog.warn("已停止生成 · ${entry.modelId}")
                 throw error
             } catch (error: AiException) {
+                AppLog.error("请求失败 ${entry.modelId}：${error.message}")
                 throw error
             } catch (error: Exception) {
                 if (job?.isCancelled == true) throw CancellationException("已停止生成")
-                throw AiException(networkError(error))
+                val message = networkError(error)
+                AppLog.error("请求失败 ${entry.modelId}：$message")
+                throw AiException(message)
             }
         }.flowOn(Dispatchers.IO)
     }
@@ -96,7 +131,7 @@ class AiClient {
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val request = buildChatRequest(provider, entry, messages, systemPrompt, stream = false)
-            http.newCall(request).execute().use { response ->
+            http().newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw AiException(httpError(response.code, response.body?.string().orEmpty()))
                 }
@@ -135,7 +170,7 @@ class AiClient {
                 .addHeader("Accept", "application/json")
                 .get()
             applyAuth(builder, provider)
-            http.newCall(builder.build()).execute().use { response ->
+            http().newCall(builder.build()).execute().use { response ->
                 if (!response.isSuccessful) {
                     throw AiException(httpError(response.code, response.body?.string().orEmpty()))
                 }
@@ -209,8 +244,8 @@ class AiClient {
         put("stream", stream)
         val reasoningModel = REASONING_MODEL.containsMatchIn(entry.modelId.lowercase())
         if (!reasoningModel) {
-            put("temperature", entry.temperature.toDouble())
-            put("top_p", entry.topP.toDouble())
+            put("temperature", rounded(entry.temperature))
+            put("top_p", rounded(entry.topP))
         }
         if (entry.maxTokens > 0) {
             put(
@@ -242,10 +277,11 @@ class AiClient {
         stream: Boolean,
     ): JSONObject = JSONObject().apply {
         put("model", entry.modelId)
-        put("max_tokens", entry.maxTokens.coerceAtLeast(1))
+        // Anthropic 必填 max_tokens；用户留空时给一个通用安全值。
+        put("max_tokens", entry.maxTokens.takeIf { it > 0 } ?: ANTHROPIC_DEFAULT_MAX_TOKENS)
         put("stream", stream)
-        put("temperature", entry.temperature.toDouble())
-        put("top_p", entry.topP.toDouble())
+        put("temperature", rounded(entry.temperature))
+        put("top_p", rounded(entry.topP))
         systemPrompt?.trim()?.takeIf { it.isNotEmpty() }?.let { put("system", it) }
 
         val merged = mutableListOf<AiMessage>()
@@ -431,8 +467,12 @@ class AiClient {
         else -> "请求失败：${error.message?.takeIf { it.isNotBlank() } ?: "请检查网络连接"}"
     }
 
+    /** 部分服务商（如智谱 GLM）要求最多 2 位小数，统一四舍五入后再发送。 */
+    private fun rounded(value: Float): Double = round(value * 100.0) / 100.0
+
     private companion object {
         val JSON = "application/json".toMediaType()
         val REASONING_MODEL = Regex("^(o1|o3|o4|gpt-5)")
+        const val ANTHROPIC_DEFAULT_MAX_TOKENS = 8192
     }
 }

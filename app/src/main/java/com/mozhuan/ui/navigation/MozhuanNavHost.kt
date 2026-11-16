@@ -15,12 +15,23 @@ import com.mozhuan.AppContainer
 import com.mozhuan.ui.screen.books.BookPlaceholderScreen
 import com.mozhuan.ui.screen.chat.AiChatScreen
 import com.mozhuan.ui.screen.chat.AiChatViewModel
+import com.mozhuan.ui.screen.settings.BackgroundSettingsScreen
+import com.mozhuan.ui.screen.settings.BackgroundSettingsViewModel
+import com.mozhuan.ui.screen.settings.BackupRestoreScreen
+import com.mozhuan.ui.screen.settings.BackupRestoreViewModel
 import com.mozhuan.ui.screen.settings.DisplaySettingsScreen
+import com.mozhuan.ui.screen.settings.LogScreen
+import com.mozhuan.ui.screen.settings.ModelGroupsScreen
+import com.mozhuan.ui.screen.settings.ModelGroupsViewModel
+import com.mozhuan.ui.screen.settings.MountedFoldersScreen
+import com.mozhuan.ui.screen.settings.MountedFoldersViewModel
 import com.mozhuan.ui.screen.settings.PersonaScreen
 import com.mozhuan.ui.screen.settings.PersonaViewModel
 import com.mozhuan.ui.screen.settings.PlaceholderScreen
 import com.mozhuan.ui.screen.settings.ProviderConfigScreen
 import com.mozhuan.ui.screen.settings.ProviderConfigViewModel
+import com.mozhuan.ui.screen.settings.ProxySettingsScreen
+import com.mozhuan.ui.screen.settings.ProxySettingsViewModel
 import com.mozhuan.ui.screen.settings.SettingsScreen
 import com.mozhuan.ui.screen.settings.SettingsViewModel
 import com.mozhuan.ui.screen.settings.SharedFolderScreen
@@ -52,6 +63,7 @@ fun MozhuanNavHost(
                             skillRepository = container.skillRepository,
                             tokenUsageRepository = container.tokenUsageRepository,
                             aiClient = container.aiClient,
+                            completionNotifier = container.completionNotifier,
                         )
                     }
                 },
@@ -163,6 +175,75 @@ fun MozhuanNavHost(
                 viewModel = personaViewModel,
                 onBack = { navController.popBackStack() },
             )
+        }
+
+        composable(Routes.MODEL_GROUPS) {
+            val groupsViewModel: ModelGroupsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { ModelGroupsViewModel(container.providerRepository) }
+                },
+            )
+            ModelGroupsScreen(
+                viewModel = groupsViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.MOUNTED_FOLDERS) {
+            val mountedViewModel: MountedFoldersViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        MountedFoldersViewModel(
+                            context = container.applicationContext,
+                            settingsRepository = container.settingsRepository,
+                        )
+                    }
+                },
+            )
+            MountedFoldersScreen(
+                viewModel = mountedViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.BACKUP_RESTORE) {
+            val backupViewModel: BackupRestoreViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { BackupRestoreViewModel(container.backupRepository) }
+                },
+            )
+            BackupRestoreScreen(
+                viewModel = backupViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.PROXY) {
+            val proxyViewModel: ProxySettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { ProxySettingsViewModel(container.settingsRepository) }
+                },
+            )
+            ProxySettingsScreen(
+                viewModel = proxyViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.BACKGROUND) {
+            val backgroundViewModel: BackgroundSettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { BackgroundSettingsViewModel(container.settingsRepository) }
+                },
+            )
+            BackgroundSettingsScreen(
+                viewModel = backgroundViewModel,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Routes.LOGS) {
+            LogScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

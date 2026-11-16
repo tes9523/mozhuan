@@ -136,13 +136,15 @@ data class ProviderInstance(
 
 /**
  * 某个服务商下的模型条目，参数独立保存（对齐 OpenMinis 的 per-model overrides）。
+ *
+ * [maxTokens] 为 0 时表示不发送该参数，交由服务商使用默认值。
  */
 data class ModelEntry(
     val id: String = UUID.randomUUID().toString(),
     val providerId: String,
     val modelId: String,
     val displayName: String = "",
-    val maxTokens: Int = 4096,
+    val maxTokens: Int = 0,
     /** 携带的历史对话轮数，0 表示仅发送当前消息。 */
     val contextTurns: Int = 10,
     val temperature: Float = 0.8f,
@@ -153,6 +155,55 @@ data class ModelEntry(
     val title: String
         get() = displayName.trim().ifBlank { modelId }
 }
+
+/** 模型组路由策略，对齐 OpenMinis：顺序故障转移或随机负载均衡。 */
+enum class GroupRoutingStrategy(val label: String, val description: String) {
+    FALLBACK("故障转移", "按成员顺序调用，失败时自动切换到下一个模型"),
+    LOAD_BALANCE("负载均衡", "每次请求在成员中随机选择一个可用模型"),
+}
+
+/** 模型组：把多个模型组合成一个可在对话页直接选择的逻辑模型。 */
+data class ModelGroup(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val memberEntryIds: List<String> = emptyList(),
+    val strategy: GroupRoutingStrategy = GroupRoutingStrategy.FALLBACK,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** 代理设置。 */
+data class ProxySettings(
+    val enabled: Boolean = false,
+    val type: String = PROXY_HTTP,
+    val host: String = "",
+    val port: Int = 7890,
+) {
+    val summary: String
+        get() = when {
+            !enabled -> "未启用"
+            host.isBlank() -> "已启用 · 地址未填写"
+            else -> "$type · $host:$port"
+        }
+
+    companion object {
+        const val PROXY_HTTP = "HTTP"
+        const val PROXY_SOCKS = "SOCKS5"
+    }
+}
+
+/** 后台与通知设置。 */
+data class NotificationSettings(
+    val notifyOnComplete: Boolean = true,
+    val notifyOnError: Boolean = true,
+)
+
+/** 已挂载的外部文件夹（SAF 目录授权）。 */
+data class MountedFolder(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val uri: String,
+    val addedAt: Long = System.currentTimeMillis(),
+)
 
 /** 已解析的当前模型：服务商 + 模型条目。 */
 data class ActiveModel(

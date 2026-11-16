@@ -425,7 +425,7 @@ private fun ProviderFormContent(viewModel: ProviderConfigViewModel) {
             } else {
                 SettingsGroup(
                     title = "模型",
-                    footer = "点击模型可单独设置 max_tokens、上下文轮数、temperature 与 top_p；左侧圆点用于切换当前模型。",
+                    footer = "点击模型可单独设置 max_tokens（留空使用服务商默认）、上下文轮数、temperature 与 top_p；左侧圆点用于切换当前模型。",
                 ) {
                     Row(
                         modifier = Modifier
@@ -481,7 +481,10 @@ private fun ProviderFormContent(viewModel: ProviderConfigViewModel) {
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = "max_tokens ${entry.maxTokens} · 上下文 ${entry.contextTurns} 轮",
+                                    text = "max_tokens " +
+                                        (entry.maxTokens.takeIf { it > 0 }?.toString()
+                                            ?: "服务商默认") +
+                                        " · 上下文 ${entry.contextTurns} 轮",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -692,7 +695,7 @@ private fun ModelDetailContent(viewModel: ProviderConfigViewModel) {
 
             SettingsGroup(
                 title = "生成参数",
-                footer = "上下文轮数为 0 时只发送当前消息；max_tokens 为 0 时不发送该参数。",
+                footer = "max_tokens 留空时使用服务商默认值；上下文轮数为本地历史轮数，0 表示只发送当前消息。",
             ) {
                 NumberField(
                     label = "max_tokens",
@@ -700,6 +703,8 @@ private fun ModelDetailContent(viewModel: ProviderConfigViewModel) {
                     onValueChange = { value ->
                         viewModel.updateEntryDraft { it.copy(maxTokens = value) }
                     },
+                    allowEmpty = true,
+                    placeholder = "服务商默认",
                 )
                 SettingsDivider()
                 NumberField(
@@ -857,9 +862,11 @@ private fun NumberField(
     label: String,
     value: Int,
     onValueChange: (Int) -> Unit,
+    allowEmpty: Boolean = false,
+    placeholder: String? = null,
 ) {
     OutlinedTextField(
-        value = value.toString(),
+        value = if (allowEmpty && value <= 0) "" else value.toString(),
         onValueChange = { text ->
             val digits = text.filter { it.isDigit() }.take(7)
             onValueChange(digits.toIntOrNull() ?: 0)
@@ -868,6 +875,7 @@ private fun NumberField(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp),
         label = { Text(label) },
+        placeholder = placeholder?.let { hint -> { Text(hint) } },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
     )

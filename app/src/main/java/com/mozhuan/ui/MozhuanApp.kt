@@ -1,6 +1,7 @@
 package com.mozhuan.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -48,7 +49,11 @@ fun MozhuanRoot(container: AppContainer) {
             MozhuanNavHost(
                 navController = navController,
                 container = container,
-                modifier = Modifier.padding(innerPadding),
+                // 已由 Scaffold 消费的内边距不再参与子页面 imePadding 计算，
+                // 避免输入法弹出时在输入框与键盘之间多出一段空白。
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding),
             )
         }
     }

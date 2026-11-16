@@ -2,12 +2,14 @@ package com.mozhuan
 
 import android.app.Application
 import android.content.Context
+import com.mozhuan.data.repository.BackupRepository
 import com.mozhuan.data.repository.ProviderRepository
 import com.mozhuan.data.repository.SettingsRepository
 import com.mozhuan.data.repository.SkillRepository
 import com.mozhuan.data.repository.TokenUsageRepository
 import com.mozhuan.net.AiClient
 import com.mozhuan.storage.preferences.AppPreferences
+import com.mozhuan.system.notify.CompletionNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,9 +29,13 @@ class AppContainer(context: Context) {
 
     val tokenUsageRepository = TokenUsageRepository(preferences)
 
-    val aiClient = AiClient()
+    val aiClient = AiClient { preferences.proxySettings.value }
 
     val providerRepository = ProviderRepository(preferences, aiClient)
+
+    val backupRepository = BackupRepository(preferences, skillRepository)
+
+    val completionNotifier = CompletionNotifier(applicationContext)
 }
 
 class MozhuanApplication : Application() {

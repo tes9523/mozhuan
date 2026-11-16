@@ -52,6 +52,11 @@ fun SettingsScreen(
     val themeModeValue by viewModel.themeMode.collectAsStateWithLifecycle()
     val fontScale by viewModel.fontScale.collectAsStateWithLifecycle()
     val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val activeGroup by viewModel.activeGroup.collectAsStateWithLifecycle()
+    val groups by viewModel.groups.collectAsStateWithLifecycle()
+    val proxySettings by viewModel.proxySettings.collectAsStateWithLifecycle()
+    val notificationSettings by viewModel.notificationSettings.collectAsStateWithLifecycle()
+    val mountedFolders by viewModel.mountedFolders.collectAsStateWithLifecycle()
 
     val themeMode = ThemeMode.from(themeModeValue)
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -70,17 +75,23 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Build,
                     title = "管理提供商",
-                    subtitle = activeModel?.let {
-                        "当前：${it.provider.displayName} · ${it.title}"
-                    } ?: "新增服务商、拉取模型并选择当前模型",
+                    subtitle = when {
+                        activeGroup != null -> "当前：模型组 · ${activeGroup?.name}"
+                        activeModel != null -> "当前：${activeModel?.provider?.displayName} · ${activeModel?.title}"
+                        else -> "新增服务商、拉取模型并选择当前模型"
+                    },
                     onClick = { onNavigate(Routes.PROVIDER) },
                 )
                 SettingsDivider()
                 SettingsRow(
                     icon = Icons.AutoMirrored.Filled.List,
                     title = "模型组",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("模型组") },
+                    subtitle = if (groups.isEmpty()) {
+                        "把多个模型组合为故障转移或负载均衡"
+                    } else {
+                        "${groups.size} 个模型组 · 故障转移与负载均衡"
+                    },
+                    onClick = { onNavigate(Routes.MODEL_GROUPS) },
                 )
                 SettingsDivider()
                 SettingsRow(
@@ -155,15 +166,19 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Share,
                     title = "挂载外部文件夹",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("挂载外部文件夹") },
+                    subtitle = if (mountedFolders.isEmpty()) {
+                        "选择手机目录，浏览并读取其中的文本"
+                    } else {
+                        "已挂载 ${mountedFolders.size} 个目录"
+                    },
+                    onClick = { onNavigate(Routes.MOUNTED_FOLDERS) },
                 )
                 SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Share,
                     title = "备份与恢复",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("备份与恢复") },
+                    subtitle = "导出或恢复服务商、模型组、技能与人格",
+                    onClick = { onNavigate(Routes.BACKUP_RESTORE) },
                 )
             }
 
@@ -171,22 +186,26 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Lock,
                     title = "代理设置",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("代理设置") },
+                    subtitle = proxySettings.summary,
+                    onClick = { onNavigate(Routes.PROXY) },
                 )
                 SettingsDivider()
                 SettingsRow(
                     icon = Icons.Filled.Notifications,
                     title = "后台与通知",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("后台与通知") },
+                    subtitle = if (notificationSettings.notifyOnComplete || notificationSettings.notifyOnError) {
+                        "生成完成 / 失败提醒已配置"
+                    } else {
+                        "通知已全部关闭"
+                    },
+                    onClick = { onNavigate(Routes.BACKGROUND) },
                 )
                 SettingsDivider()
                 SettingsRow(
                     icon = Icons.AutoMirrored.Filled.List,
                     title = "运行日志",
-                    subtitle = "预留入口",
-                    onClick = { onOpenPlaceholder("运行日志") },
+                    subtitle = "查看最近的请求完成与错误记录",
+                    onClick = { onNavigate(Routes.LOGS) },
                 )
             }
 
@@ -194,7 +213,7 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "版本号",
-                    subtitle = "0.8.0",
+                    subtitle = "0.9.1",
                 )
                 SettingsDivider()
                 SettingsRow(

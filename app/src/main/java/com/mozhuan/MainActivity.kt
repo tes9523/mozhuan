@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mozhuan.storage.preferences.AppPreferences
+import com.mozhuan.system.notify.AppForeground
 import com.mozhuan.ui.MozhuanRoot
 
 class MainActivity : ComponentActivity() {
@@ -24,6 +25,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             MozhuanRoot(container)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppForeground.onStart()
+    }
+
+    override fun onStop() {
+        AppForeground.onStop()
+        super.onStop()
     }
 
     private fun requestNotificationPermissionIfNeeded(preferences: AppPreferences) {

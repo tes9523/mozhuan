@@ -1,6 +1,8 @@
 package com.mozhuan.data.repository
 
+import com.mozhuan.data.model.ActiveModel
 import com.mozhuan.data.model.ModelEntry
+import com.mozhuan.data.model.ModelGroup
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
 import com.mozhuan.net.AiClient
@@ -12,7 +14,7 @@ import java.util.UUID
 /**
  * 服务商与模型仓库，行为对齐 OpenMinis：
  * 服务商按类型创建、地址可选自定义并按需追加 /v1、模型列表可从 /models 拉取，
- * 每个模型独立保存生成参数，对话使用当前选中的模型。
+ * 每个模型独立保存生成参数；模型组可把多个模型组合成故障转移 / 负载均衡单元。
  */
 class ProviderRepository(
     private val preferences: AppPreferences,
@@ -22,6 +24,8 @@ class ProviderRepository(
     val providers: StateFlow<List<ProviderInstance>> = preferences.providers
     val entries: StateFlow<List<ModelEntry>> = preferences.modelEntries
     val selectedEntryId: StateFlow<String> = preferences.selectedEntryId
+    val groups: StateFlow<List<ModelGroup>> = preferences.modelGroups
+    val selectedGroupId: StateFlow<String> = preferences.selectedGroupId
 
     fun entriesFor(providerId: String): List<ModelEntry> =
         entries.value.filter { it.providerId == providerId }
@@ -63,8 +67,19 @@ class ProviderRepository(
     }
 
     fun deleteProvider(providerId: String) {
+        val removedEntryIds = entries.value
+            .filter { it.providerId == providerId }
+            .map { it.id }
+            .toSet()
         preferences.saveProviders(providers.value.filterNot { it.id == providerId })
         preferences.saveModelEntries(entries.value.filterNot { it.providerId == providerId })
+        if (removedEntryIds.isNotEmpty()) {
+            preferences.saveModelGroups(
+                groups.value.map { group ->
+                    group.copy(memberEntryIds = group.memberEntryIds.filterNot { it in removedEntryIds })
+                },
+            )
+        }
         ensureSelection()
     }
 
@@ -97,12 +112,68 @@ class ProviderRepository(
 
     fun deleteEntry(entryId: String) {
         preferences.saveModelEntries(entries.value.filterNot { it.id == entryId })
+        preferences.saveModelGroups(
+            groups.value.map { group ->
+                group.copy(memberEntryIds = group.memberEntryIds.filterNot { it == entryId })
+            },
+        )
         ensureSelection()
     }
 
     fun selectEntry(entryId: String) {
         preferences.setSelectedEntry(entryId)
     }
+
+    // ── 模型组 ───────────────────────────────────────────────────
+
+    fun createGroup(name: String): ModelGroup {
+        val group = ModelGroup(name = name.trim().ifBlank { "模型组" })
+        preferences.saveModelGroups(groups.value + group)
+        return group
+    }
+
+    fun updateGroup(group: ModelGroup) {
+        preferences.saveModelGroups(
+            groups.value.map { if (it.id == group.id) group else it },
+        )
+    }
+
+    fun deleteGroup(groupId: String) {
+        preferences.saveModelGroups(groups.value.filterNot { it.id == groupId })
+        if (preferences.selectedGroupId.value == groupId) preferences.setSelectedGroup("")
+        ensureSelection()
+    }
+
+    fun addGroupMember(groupId: String, entryId: String) {
+        val group = groups.value.firstOrNull { it.id == groupId } ?: return
+        if (entryId in group.memberEntryIds) return
+        updateGroup(group.copy(memberEntryIds = group.memberEntryIds + entryId))
+    }
+
+    fun removeGroupMember(groupId: String, entryId: String) {
+        val group = groups.value.firstOrNull { it.id == groupId } ?: return
+        updateGroup(group.copy(memberEntryIds = group.memberEntryIds - entryId))
+    }
+
+    /** 切换当前使用模型组；空组不生效。 */
+    fun selectGroup(groupId: String) {
+        val group = groups.value.firstOrNull { it.id == groupId } ?: return
+        if (groupMembers(group).isEmpty()) return
+        preferences.setSelectedGroup(groupId)
+    }
+
+    /** 模型组成员（仅保留启用服务商下的有效模型），按配置顺序。 */
+    fun groupMembers(group: ModelGroup): List<ActiveModel> {
+        val providersById = providers.value.filter { it.isEnabled }.associateBy { it.id }
+        val entriesById = entries.value.associateBy { it.id }
+        return group.memberEntryIds.mapNotNull { entryId ->
+            val entry = entriesById[entryId] ?: return@mapNotNull null
+            providersById[entry.providerId]?.let { ActiveModel(it, entry) }
+        }
+    }
+
+    fun groupMemberEntries(group: ModelGroup): List<ModelEntry> =
+        groupMembers(group).map { it.entry }
 
     /** 拉取服务商模型列表；已有模型保留，只补充新模型。 */
     suspend fun refreshModels(providerId: String): Result<Int> {
@@ -141,9 +212,15 @@ class ProviderRepository(
     }
 
     private fun ensureSelection() {
-        val current = preferences.selectedEntryId.value
         val allEntries = entries.value
         val allProviders = providers.value
+        val allGroups = groups.value
+
+        val group = allGroups.firstOrNull { it.id == preferences.selectedGroupId.value }
+        if (group != null && groupMembers(group).isNotEmpty()) return
+        if (preferences.selectedGroupId.value.isNotEmpty()) preferences.setSelectedGroup("")
+
+        val current = preferences.selectedEntryId.value
         val valid = allEntries.any { entry ->
             entry.id == current && allProviders.any { it.id == entry.providerId && it.isEnabled }
         }

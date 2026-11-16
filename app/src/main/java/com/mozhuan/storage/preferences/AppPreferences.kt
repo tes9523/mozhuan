@@ -2,9 +2,14 @@ package com.mozhuan.storage.preferences
 
 import android.content.Context
 import com.mozhuan.data.model.DisplaySettings
+import com.mozhuan.data.model.GroupRoutingStrategy
 import com.mozhuan.data.model.ModelEntry
+import com.mozhuan.data.model.ModelGroup
+import com.mozhuan.data.model.MountedFolder
+import com.mozhuan.data.model.NotificationSettings
 import com.mozhuan.data.model.ProviderInstance
 import com.mozhuan.data.model.ProviderType
+import com.mozhuan.data.model.ProxySettings
 import com.mozhuan.data.model.UsageStat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +68,7 @@ class AppPreferences(context: Context) {
     // ── LLM 服务商与模型 ─────────────────────────────────────────
 
     private val migrated = migrateLegacyProviders()
+    private val maxTokensDefaulted = migrateMaxTokensToProviderDefault()
 
     private val _providers = MutableStateFlow(loadProviders())
     val providers: StateFlow<List<ProviderInstance>> = _providers.asStateFlow()
@@ -77,11 +83,22 @@ class AppPreferences(context: Context) {
     )
     val selectedEntryId: StateFlow<String> = _selectedEntryId.asStateFlow()
 
+    private val _modelGroups = MutableStateFlow(loadModelGroups())
+    val modelGroups: StateFlow<List<ModelGroup>> = _modelGroups.asStateFlow()
+
+    private val _selectedGroupId = MutableStateFlow(
+        prefs.getString(KEY_SELECTED_GROUP_ID, "").orEmpty()
+            .takeIf { id -> _modelGroups.value.any { it.id == id } }
+            .orEmpty(),
+    )
+    val selectedGroupId: StateFlow<String> = _selectedGroupId.asStateFlow()
+
     init {
         if (migrated) {
-            persistProviders(_providers.value)
-            persistEntries(_modelEntries.value)
             prefs.edit().putString(KEY_SELECTED_ENTRY_ID, _selectedEntryId.value).apply()
+        }
+        if (maxTokensDefaulted) {
+            persistEntries(_modelEntries.value)
         }
     }
 
@@ -97,8 +114,56 @@ class AppPreferences(context: Context) {
 
     fun setSelectedEntry(entryId: String) {
         if (entryId.isNotBlank() && _modelEntries.value.none { it.id == entryId }) return
-        prefs.edit().putString(KEY_SELECTED_ENTRY_ID, entryId).apply()
+        prefs.edit()
+            .putString(KEY_SELECTED_ENTRY_ID, entryId)
+            .putString(KEY_SELECTED_GROUP_ID, "")
+            .apply()
         _selectedEntryId.value = entryId
+        _selectedGroupId.value = ""
+    }
+
+    fun saveModelGroups(groups: List<ModelGroup>) {
+        persistGroups(groups)
+        _modelGroups.value = groups
+    }
+
+    fun setSelectedGroup(groupId: String) {
+        if (groupId.isNotBlank() && _modelGroups.value.none { it.id == groupId }) return
+        prefs.edit().putString(KEY_SELECTED_GROUP_ID, groupId).apply()
+        _selectedGroupId.value = groupId
+    }
+
+    /** 备份 / 恢复时整体重新加载所有服务商、模型与模型组。 */
+    fun reloadModelConfig() {
+        _providers.value = loadProviders()
+        _modelEntries.value = loadModelEntries()
+        _modelGroups.value = loadModelGroups()
+        _selectedEntryId.value = prefs.getString(KEY_SELECTED_ENTRY_ID, "").orEmpty()
+            .takeIf { id -> _modelEntries.value.any { it.id == id } }.orEmpty()
+        _selectedGroupId.value = prefs.getString(KEY_SELECTED_GROUP_ID, "").orEmpty()
+            .takeIf { id -> _modelGroups.value.any { it.id == id } }.orEmpty()
+    }
+
+    /** 导出可备份的配置（服务商 / 模型 / 模型组 / 人格）。 */
+    fun exportConfig(): JSONObject = JSONObject()
+        .put("providers", prefs.getString(KEY_PROVIDER_INSTANCES, "[]"))
+        .put("entries", prefs.getString(KEY_MODEL_ENTRIES, "[]"))
+        .put("groups", prefs.getString(KEY_MODEL_GROUPS, "[]"))
+        .put("selectedEntryId", _selectedEntryId.value)
+        .put("selectedGroupId", _selectedGroupId.value)
+        .put("persona", persona.value)
+
+    fun restoreConfig(config: JSONObject) {
+        prefs.edit()
+            .putString(KEY_PROVIDER_INSTANCES, config.optString("providers", "[]"))
+            .putString(KEY_MODEL_ENTRIES, config.optString("entries", "[]"))
+            .putString(KEY_MODEL_GROUPS, config.optString("groups", "[]"))
+            .putString(KEY_SELECTED_ENTRY_ID, config.optString("selectedEntryId", ""))
+            .putString(KEY_SELECTED_GROUP_ID, config.optString("selectedGroupId", ""))
+            .putString(KEY_PERSONA, config.optString("persona", DEFAULT_PERSONA))
+            .apply()
+        _persona.value = config.optString("persona", DEFAULT_PERSONA)
+        reloadModelConfig()
     }
 
     private fun persistProviders(providers: List<ProviderInstance>) {
@@ -141,6 +206,76 @@ class AppPreferences(context: Context) {
         prefs.edit().putString(KEY_MODEL_ENTRIES, json).apply()
     }
 
+    private fun persistGroups(groups: List<ModelGroup>) {
+        val json = JSONArray().apply {
+            groups.forEach { group ->
+                put(
+                    JSONObject()
+                        .put("id", group.id)
+                        .put("name", group.name)
+                        .put("memberEntryIds", JSONArray(group.memberEntryIds))
+                        .put("strategy", group.strategy.name)
+                        .put("createdAt", group.createdAt),
+                )
+            }
+        }.toString()
+        prefs.edit().putString(KEY_MODEL_GROUPS, json).apply()
+    }
+
+    private fun loadModelGroups(): List<ModelGroup> {
+        val stored = prefs.getString(KEY_MODEL_GROUPS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(stored)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val members = item.optJSONArray("memberEntryIds")
+                    add(
+                        ModelGroup(
+                            id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                            name = item.optString("name"),
+                            memberEntryIds = buildList {
+                                if (members != null) {
+                                    for (m in 0 until members.length()) {
+                                        members.optString(m).takeIf { it.isNotBlank() }?.let(::add)
+                                    }
+                                }
+                            },
+                            strategy = GroupRoutingStrategy.entries
+                                .firstOrNull { it.name == item.optString("strategy") }
+                                ?: GroupRoutingStrategy.FALLBACK,
+                            createdAt = item.optLong("createdAt", System.currentTimeMillis()),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * v0.9.0 默认给每个模型写入 max_tokens=4096。
+     * 本版本改为「留空即服务商默认」，把未改动的 4096 一次性迁移为 0。
+     */
+    private fun migrateMaxTokensToProviderDefault(): Boolean {
+        if (prefs.getBoolean(KEY_MAX_TOKENS_DEFAULTED, false)) return false
+        prefs.edit().putBoolean(KEY_MAX_TOKENS_DEFAULTED, true).apply()
+        val stored = prefs.getString(KEY_MODEL_ENTRIES, null) ?: return false
+        val migrated = runCatching {
+            val array = JSONArray(stored)
+            var changed = false
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                if (item.optInt("maxTokens", 0) == 4096) {
+                    item.put("maxTokens", 0)
+                    changed = true
+                }
+            }
+            if (changed) array.toString() else null
+        }.getOrNull() ?: return false
+        prefs.edit().putString(KEY_MODEL_ENTRIES, migrated).apply()
+        return true
+    }
+
     private fun loadProviders(): List<ProviderInstance> {
         val stored = prefs.getString(KEY_PROVIDER_INSTANCES, null) ?: return emptyList()
         return runCatching {
@@ -178,7 +313,7 @@ class AppPreferences(context: Context) {
                             providerId = item.optString("providerId"),
                             modelId = item.optString("modelId"),
                             displayName = item.optString("displayName"),
-                            maxTokens = item.optInt("maxTokens", 4096),
+                            maxTokens = item.optInt("maxTokens", 0),
                             contextTurns = item.optInt("contextTurns", 10),
                             temperature = item.optDouble("temperature", 0.8).toFloat(),
                             topP = item.optDouble("topP", 1.0).toFloat(),
@@ -234,7 +369,7 @@ class AppPreferences(context: Context) {
                 val entry = ModelEntry(
                     providerId = providerId,
                     modelId = modelId,
-                    maxTokens = item.optInt("maxTokens", 4096),
+                    maxTokens = item.optInt("maxTokens", 0),
                     contextTurns = item.optInt("contextTurns", 10),
                     temperature = item.optDouble("temperature", 0.8).toFloat(),
                     topP = item.optDouble("topP", 1.0).toFloat(),
@@ -287,6 +422,86 @@ class AppPreferences(context: Context) {
 
     fun clearLegacySkills() {
         prefs.edit().remove(KEY_SKILLS).apply()
+    }
+
+    // ── 代理、通知与外部文件夹 ───────────────────────────────────
+
+    private val _proxySettings = MutableStateFlow(
+        ProxySettings(
+            enabled = prefs.getBoolean(KEY_PROXY_ENABLED, false),
+            type = prefs.getString(KEY_PROXY_TYPE, ProxySettings.PROXY_HTTP)
+                ?: ProxySettings.PROXY_HTTP,
+            host = prefs.getString(KEY_PROXY_HOST, "").orEmpty(),
+            port = prefs.getInt(KEY_PROXY_PORT, 7890),
+        ),
+    )
+    val proxySettings: StateFlow<ProxySettings> = _proxySettings.asStateFlow()
+
+    fun setProxySettings(settings: ProxySettings) {
+        prefs.edit()
+            .putBoolean(KEY_PROXY_ENABLED, settings.enabled)
+            .putString(KEY_PROXY_TYPE, settings.type)
+            .putString(KEY_PROXY_HOST, settings.host.trim())
+            .putInt(KEY_PROXY_PORT, settings.port)
+            .apply()
+        _proxySettings.value = settings.copy(host = settings.host.trim())
+    }
+
+    private val _notificationSettings = MutableStateFlow(
+        NotificationSettings(
+            notifyOnComplete = prefs.getBoolean(KEY_NOTIFY_COMPLETE, true),
+            notifyOnError = prefs.getBoolean(KEY_NOTIFY_ERROR, true),
+        ),
+    )
+    val notificationSettings: StateFlow<NotificationSettings> = _notificationSettings.asStateFlow()
+
+    fun setNotificationSettings(settings: NotificationSettings) {
+        prefs.edit()
+            .putBoolean(KEY_NOTIFY_COMPLETE, settings.notifyOnComplete)
+            .putBoolean(KEY_NOTIFY_ERROR, settings.notifyOnError)
+            .apply()
+        _notificationSettings.value = settings
+    }
+
+    private val _mountedFolders = MutableStateFlow(loadMountedFolders())
+    val mountedFolders: StateFlow<List<MountedFolder>> = _mountedFolders.asStateFlow()
+
+    fun saveMountedFolders(folders: List<MountedFolder>) {
+        val json = JSONArray().apply {
+            folders.forEach { folder ->
+                put(
+                    JSONObject()
+                        .put("id", folder.id)
+                        .put("name", folder.name)
+                        .put("uri", folder.uri)
+                        .put("addedAt", folder.addedAt),
+                )
+            }
+        }.toString()
+        prefs.edit().putString(KEY_MOUNTED_FOLDERS, json).apply()
+        _mountedFolders.value = folders
+    }
+
+    private fun loadMountedFolders(): List<MountedFolder> {
+        val stored = prefs.getString(KEY_MOUNTED_FOLDERS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(stored)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val uri = item.optString("uri")
+                    if (uri.isBlank()) continue
+                    add(
+                        MountedFolder(
+                            id = item.optString("id").ifBlank { UUID.randomUUID().toString() },
+                            name = item.optString("name").ifBlank { "外部文件夹" },
+                            uri = uri,
+                            addedAt = item.optLong("addedAt", System.currentTimeMillis()),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 
     // ── 累计 Token 统计 ───────────────────────────────────────────
@@ -348,7 +563,17 @@ class AppPreferences(context: Context) {
         private const val KEY_NOTIFICATION_ASKED = "notification_permission_asked"
         private const val KEY_PROVIDER_INSTANCES = "provider_instances_json"
         private const val KEY_MODEL_ENTRIES = "model_entries_json"
+        private const val KEY_MODEL_GROUPS = "model_groups_json"
         private const val KEY_SELECTED_ENTRY_ID = "selected_model_entry_id"
+        private const val KEY_SELECTED_GROUP_ID = "selected_model_group_id"
+        private const val KEY_MAX_TOKENS_DEFAULTED = "max_tokens_provider_default_migrated"
+        private const val KEY_PROXY_ENABLED = "proxy_enabled"
+        private const val KEY_PROXY_TYPE = "proxy_type"
+        private const val KEY_PROXY_HOST = "proxy_host"
+        private const val KEY_PROXY_PORT = "proxy_port"
+        private const val KEY_NOTIFY_COMPLETE = "notify_on_complete"
+        private const val KEY_NOTIFY_ERROR = "notify_on_error"
+        private const val KEY_MOUNTED_FOLDERS = "mounted_folders_json"
         private const val KEY_PROVIDERS = "providers_json"
         private const val KEY_DEFAULT_PROVIDER_ID = "default_provider_id"
         private const val KEY_PERSONA = "persona_soul"

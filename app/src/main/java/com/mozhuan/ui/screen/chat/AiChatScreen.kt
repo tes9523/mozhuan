@@ -83,8 +83,14 @@ fun AiChatScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val displaySettings by viewModel.displaySettings.collectAsStateWithLifecycle()
     val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val activeGroup by viewModel.activeGroup.collectAsStateWithLifecycle()
+    val groupOptions by viewModel.groupOptions.collectAsStateWithLifecycle()
     val modelOptions by viewModel.modelOptions.collectAsStateWithLifecycle()
     val selectedEntryId by viewModel.selectedEntryId.collectAsStateWithLifecycle()
+    val selectedGroupId by viewModel.selectedGroupId.collectAsStateWithLifecycle()
+    val currentGroup = activeGroup?.let { group ->
+        groupOptions.firstOrNull { it.group.id == group.id }?.group
+    }
 
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -138,9 +144,10 @@ fun AiChatScreen(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = activeModel?.title ?: "未选择模型",
+                            text = currentGroup?.let { "模型组 · ${it.name}" }
+                                ?: (activeModel?.title ?: "未选择模型"),
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (activeModel == null) {
+                            color = if (activeModel == null && currentGroup == null) {
                                 MaterialTheme.colorScheme.error
                             } else {
                                 MaterialTheme.colorScheme.primary
@@ -181,24 +188,43 @@ fun AiChatScreen(
                     modifier = Modifier.padding(top = 64.dp),
                 ) {
                     Text(
-                        text = if (activeModel == null) "还没有可用模型" else "开始一段新的对话",
+                        text = if (activeModel == null && currentGroup == null) {
+                            "还没有可用模型"
+                        } else {
+                            "开始一段新的对话"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
-                        text = if (activeModel == null) {
-                            "添加服务商并选择一个模型后即可开始写作"
-                        } else {
-                            "人格与已启用技能会自动合并；当前使用 ${activeModel?.provider?.displayName} · ${activeModel?.entry?.title}"
+                        text = when {
+                            activeModel == null && currentGroup == null ->
+                                "添加服务商并选择一个模型后即可开始写作"
+                            currentGroup != null -> {
+                                val option = groupOptions.firstOrNull { it.group.id == currentGroup.id }
+                                "模型组「${currentGroup.name}」· ${option?.members?.size ?: 0} 个模型 · " +
+                                    currentGroup.strategy.label
+                            }
+                            else -> "人格与已启用技能会自动合并；当前使用 " +
+                                "${activeModel?.provider?.displayName} · ${activeModel?.entry?.title}"
                         },
                         modifier = Modifier.padding(top = 8.dp, start = 32.dp, end = 32.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
-                    if (activeModel == null) {
+                    if (activeModel == null && currentGroup == null) {
                         TextButton(onClick = onOpenProviders) {
                             Text("去添加服务商")
                         }
+                    } else if (currentGroup != null) {
+                        val option = groupOptions.firstOrNull { it.group.id == currentGroup.id }
+                        Text(
+                            text = option?.members?.joinToString(" → ") { it.entry.title }.orEmpty(),
+                            modifier = Modifier.padding(top = 12.dp, start = 32.dp, end = 32.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
                     } else {
                         val entry = activeModel?.entry
                         if (entry != null) {
@@ -325,12 +351,12 @@ fun AiChatScreen(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "模型参数在「设置 → 提供商」中单独配置",
+                text = "模型组与模型参数在「设置」中配置",
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (modelOptions.isEmpty()) {
+            if (modelOptions.isEmpty() && groupOptions.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -355,9 +381,73 @@ fun AiChatScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp),
+                        .heightIn(max = 460.dp),
                     contentPadding = PaddingValues(bottom = 24.dp),
                 ) {
+                    if (groupOptions.isNotEmpty()) {
+                        item(key = "group-header") {
+                            Text(
+                                text = "模型组",
+                                modifier = Modifier.padding(
+                                    start = 24.dp,
+                                    end = 24.dp,
+                                    top = 16.dp,
+                                    bottom = 4.dp,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        items(groupOptions, key = { "group-${it.group.id}" }) { option ->
+                            val selected = option.group.id == selectedGroupId
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.selectGroup(option.group.id)
+                                        showModelSheet = false
+                                    }
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = option.group.name,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${option.members.size} 个模型 · " +
+                                            option.group.strategy.label,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (selected) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = "当前模型组",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                        }
+                        item(key = "model-header") {
+                            Text(
+                                text = "全部模型",
+                                modifier = Modifier.padding(
+                                    start = 24.dp,
+                                    end = 24.dp,
+                                    top = 16.dp,
+                                    bottom = 4.dp,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     val grouped = modelOptions.groupBy { it.provider }
                     grouped.forEach { (provider, options) ->
                         item(key = "provider-${provider.id}") {
@@ -392,12 +482,17 @@ fun AiChatScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = "max_tokens ${option.entry.maxTokens} · 上下文 ${option.entry.contextTurns} 轮",
+                                        text = "max_tokens " +
+                                            (option.entry.maxTokens.takeIf { it > 0 }?.toString()
+                                                ?: "服务商默认") +
+                                            " · 上下文 ${option.entry.contextTurns} 轮",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (option.entry.id == selectedEntryId) {
+                                if (option.entry.id == selectedEntryId &&
+                                    selectedGroupId.isBlank()
+                                ) {
                                     Icon(
                                         Icons.Filled.Check,
                                         contentDescription = "当前模型",
