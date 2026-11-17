@@ -85,5 +85,6 @@ jobs:
             **墨撰 Mozhuan v${{ needs.build.outputs.version_name }}** · versionCode ${{ needs.build.outputs.version_code }}
 
             签名 release APK，直接安装覆盖旧版本。详见 [Releases](https://github.com/tes9523/mozhuan/releases)。
-          files: mozuan-v${{ needs.build.outputs.version_name }}.apk
+          files: |
+            **/mozhuan-v${{ needs.build.outputs.version_name }}.apk
           fail_on_unmatched_files: true
