@@ -105,17 +105,78 @@ class SkillRepository(
             ?: throw IllegalArgumentException("无法识别技能名称")
         val body = parsed?.body?.takeIf { it.isNotBlank() } ?: content.trim()
         require(body.isNotBlank()) { "技能内容为空" }
-        saveSkill(
-            id = null,
-            name = name,
+        val skillId = UUID.randomUUID().toString()
+        val dir = File(skillsDir, skillId)
+        dir.mkdirs()
+        val skill = Skill(
+            id = skillId,
+            name = name.trim(),
             description = parsed?.description.orEmpty(),
+            version = parsed?.version?.ifBlank { "1.0.0" } ?: "1.0.0",
             body = body,
             enabled = false,
+            updatedAt = System.currentTimeMillis(),
         )
+        // 完整保留原始 SKILL.md（含 frontmatter）；没有 frontmatter 时才补规范头。
+        File(dir, "SKILL.md").writeText(
+            if (parsed != null) content.trimEnd() + "\n" else serialize(skill),
+        )
+        preferences.setSkillEnabled(skillId, false)
+        reload()
+        skill
     }
 
-    /** 导出为完整 SKILL.md 文本。 */
-    fun exportMarkdown(skill: Skill): String = serialize(skill)
+    /** 导出为完整 SKILL.md 文本（优先导出目录里的原始文件）。 */
+    fun exportMarkdown(skill: Skill): String =
+        readSkillMarkdown(skill.id).ifBlank { serialize(skill) }
+
+    /** 读取技能目录里真实的 SKILL.md（含 frontmatter 原文）。 */
+    fun readSkillMarkdown(skillId: String): String {
+        val file = File(File(skillsDir, skillId), "SKILL.md")
+        return if (file.isFile) runCatching { file.readText() }.getOrDefault("") else ""
+    }
+
+    /**
+     * 以整份 SKILL.md 文本保存技能：名称、描述、版本都从 frontmatter 解析，
+     * 正文原样写回，保留未知字段与排版。
+     */
+    fun saveDocument(id: String?, rawContent: String, enabled: Boolean = true): Skill {
+        val skillId = id ?: UUID.randomUUID().toString()
+        require(skillId != Skill.BUILT_IN_SKILL_CREATOR_ID) { "内置 skill-creator 不可修改" }
+        val parsed = parseSkillMd(rawContent)
+        val name = parsed?.name?.trim().orEmpty().ifBlank { "未命名技能" }
+        val body = parsed?.body?.takeIf { it.isNotBlank() } ?: rawContent.trim()
+        require(body.isNotBlank()) { "SKILL.md 内容为空" }
+        val dir = File(skillsDir, skillId)
+        dir.mkdirs()
+        val skill = Skill(
+            id = skillId,
+            name = name,
+            description = parsed?.description?.trim().orEmpty(),
+            version = parsed?.version?.ifBlank { "1.0.0" } ?: "1.0.0",
+            body = body,
+            enabled = enabled,
+            updatedAt = System.currentTimeMillis(),
+        )
+        val text = if (parsed != null) rawContent.trimEnd() + "\n" else serialize(skill)
+        File(dir, "SKILL.md").writeText(text)
+        preferences.setSkillEnabled(skillId, enabled)
+        reload()
+        return skill
+    }
+
+    /** 保存引用文件（references / scripts 等文本附件）。 */
+    fun saveAttachment(skillId: String, relativePath: String, content: String): Boolean {
+        require(skillId != Skill.BUILT_IN_SKILL_CREATOR_ID) { "内置 skill-creator 不可修改" }
+        if (relativePath == "SKILL.md" || relativePath.startsWith("assets/")) return false
+        if (!isSafePath(relativePath)) return false
+        val file = File(File(skillsDir, skillId), relativePath)
+        if (!file.isFile) return false
+        return runCatching {
+            file.writeText(content)
+            true
+        }.getOrDefault(false)
+    }
 
     /**
      * 从 zip 压缩包导入技能：支持根目录 `SKILL.md` 或一层子目录 `xxx/SKILL.md`，
@@ -163,7 +224,10 @@ class SkillRepository(
             enabled = false,
             updatedAt = System.currentTimeMillis(),
         )
-        File(dir, "SKILL.md").writeText(serialize(skill))
+        // 完整保留压缩包里的原始 SKILL.md，name / description 不会被重写。
+        File(dir, "SKILL.md").writeText(
+            if (parsed != null) content.trimEnd() + "\n" else serialize(skill),
+        )
 
         entries.forEach { entry ->
             if (entry.name == skillEntry.name) return@forEach
@@ -309,7 +373,7 @@ class SkillRepository(
         val output = ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             zip.putNextEntry(ZipEntry("SKILL.md"))
-            zip.write(serialize(skill).toByteArray(Charsets.UTF_8))
+            zip.write(exportMarkdown(skill).toByteArray(Charsets.UTF_8))
             zip.closeEntry()
             attachments.sortedBy { it.path }.forEach { file ->
                 val relative = file.relativeTo(dir).path.replace('\\', '/')

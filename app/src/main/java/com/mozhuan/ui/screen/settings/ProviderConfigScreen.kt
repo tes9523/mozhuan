@@ -1,5 +1,6 @@
 package com.mozhuan.ui.screen.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +78,8 @@ fun ProviderConfigScreen(
     onBack: () -> Unit,
 ) {
     val stage by viewModel.stage.collectAsStateWithLifecycle()
+    // 系统返回键先逐级回退（模型 → 表单 → 列表），不要整页退出到设置。
+    BackHandler(enabled = stage != ProviderStage.LIST) { viewModel.back() }
     when (stage) {
         ProviderStage.LIST -> ProviderListContent(viewModel, onBack)
         ProviderStage.TYPE -> ProviderTypeContent(viewModel)

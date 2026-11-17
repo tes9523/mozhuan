@@ -9,9 +9,9 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.9.6 | 技能完整导入并保留 SKILL.md 原文｜改正文 frontmatter 的 name / description 即改技能名与描述｜详情页卡片 + 原始 Skill 内容样式｜全屏编辑（正文 / 引用文件 Tab，键盘不再遮挡，引用文件可编辑）｜返回键逐级回退 | [mozhuan-v0.9.6.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.6/mozhuan-v0.9.6.apk) |
 | v0.9.5 | 技能详情默认只读 + 未保存退出提示｜附件块移到正文下方｜气泡长按气泡式菜单｜用户气泡内联编辑 + 取消按钮｜AI 气泡选中文本复制 + 添加到输入框 | [mozhuan-v0.9.5.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.5/mozhuan-v0.9.5.apk) |
 | v0.9.4 | 内置 skill-creator 换新并彻底只读｜技能附件导入与预览｜对话内思考强度切换｜@ 主动调用技能｜用户气泡复制 / 编辑 / 删除 | [mozhuan-v0.9.4.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.4/mozhuan-v0.9.4.apk) |
-| v0.9.3 | 输入法留白修复｜内置技能只读可导出｜技能按需加载｜逐模型思考强度｜连接测试修复｜Markdown 与消息长按操作 | [mozhuan-v0.9.3.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.3/mozhuan-v0.9.3.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
 
@@ -22,7 +22,7 @@
 - **多模型**：每个模型独立保存 max_tokens、上下文轮数、temperature、top_p 与 7 档思考强度；按服务商生成对应思考参数；max_tokens 留空即不发送、使用服务商默认值；列表内切换当前模型；上下文轮数 = 0 时只发送当前消息；测试连接使用当前模型并与对话共用流式请求，返回中文错误及 429 详情
 - **模型组**：把多个模型组合为一个入口，支持故障转移（按顺序失败自动切换）与负载均衡（随机选择）；对话页可直接选择模型组，设置页管理名称、策略与成员
 - **Token 用量**：当前会话输入、输出、总计；按服务商 + 模型累计输入输出 token；支持按服务商清空与全部清空；不包含金额与预算
-- **技能**：每个技能是一个 `/var/minis/skills/<id>/SKILL.md`，YAML frontmatter 保存名称 / 描述 / 版本；内置 skill-creator 每次启动恢复为内置版本、只读、不可删除但可导出；自定义技能支持开关、编辑、导入导出；导入支持 zip，自动解压 references / assets / scripts 等附件并在详情页预览；对话仅注入启用技能的元数据，AI 按需通过 read_file 加载正文与附件，输入框 @ 技能可直接注入正文
+- **技能**：每个技能是一个 `/var/minis/skills/<id>/SKILL.md`，YAML frontmatter 保存名称 / 描述 / 版本；导入完整保留 SKILL.md 原文与全部附件；详情页展示技能卡片与原始 Skill 内容，编辑改名为全屏编辑器（正文 / 引用文件两个 Tab，键盘不遮挡，references 可改）；内置 skill-creator 每次启动恢复为内置版本、只读、不可删除但可导出；自定义技能支持开关、导入导出；对话仅注入启用技能的元数据，AI 按需通过 read_file 加载正文与附件，输入框 @ 技能可直接注入正文
 - **可用工具**：读取文件、写入书稿、读取网页、写入记忆四个开关；通过 OpenAI 兼容 function calling 调用，对话中显示工具状态，单次回复最多 4 轮
 - **记忆**：GLOBAL.md 长期记忆 + 按天记录，支持编辑与删除；开启后自动注入系统提示词，也可由 AI 通过「写入记忆」工具追加
 - **外观**：深色 / 浅色 / 跟随系统、字体大小、消息时间、紧凑气泡、自动滚动；象牙白分组卡片风格

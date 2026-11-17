@@ -30,6 +30,16 @@ class SkillViewModel(
 
     fun deleteSkill(skillId: String) = repository.deleteSkill(skillId)
 
+    /** 读取目录里真实的 SKILL.md（含 frontmatter 原文）。 */
+    fun readSkillMarkdown(skillId: String): String = repository.readSkillMarkdown(skillId)
+
+    /** 以整份 SKILL.md 文本保存，name / description 从正文 frontmatter 解析。 */
+    fun saveDocument(id: String?, rawContent: String, enabled: Boolean = true): Skill =
+        repository.saveDocument(id, rawContent, enabled)
+
+    fun saveAttachment(skillId: String, path: String, content: String): Boolean =
+        repository.saveAttachment(skillId, path, content)
+
     fun importSkill(content: String, fallbackName: String?): Result<Skill> =
         repository.importSkill(content, fallbackName)
 
