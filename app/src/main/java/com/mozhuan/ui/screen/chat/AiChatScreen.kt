@@ -3,7 +3,6 @@ package com.mozhuan.ui.screen.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.text.method.LinkMovementMethod
 import android.util.TypedValue
 import android.widget.TextView
 import androidx.compose.foundation.background
@@ -29,7 +28,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -61,6 +59,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +71,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -79,9 +80,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -123,6 +128,8 @@ fun AiChatScreen(
     }
 
     val listState = rememberLazyListState()
+    val atTop by remember { derivedStateOf { !listState.canScrollBackward } }
+    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -360,40 +367,64 @@ fun AiChatScreen(
                 }
             }
         } else {
-            LazyColumn(
-                state = listState,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { hideKeyboard() })
-                    },
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = 4.dp,
-                    bottom = 12.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(
-                    if (displaySettings.compactMessages) 6.dp else 12.dp,
-                ),
+                    .weight(1f),
             ) {
-                items(messages, key = { it.id }) { message ->
-                    MessageBubble(
-                        message = message,
-                        showTimestamp = displaySettings.showTimestamps,
-                        canRegenerate = !isStreaming,
-                        onCopy = { copyToClipboard(context, message.content) },
-                        onRegenerate = { viewModel.regenerate(message.id) },
-                        onAddToInput = {
-                            viewModel.onInputChange((input.ifBlank { "" } + "\n" + message.content).trim())
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { hideKeyboard() })
                         },
-                        onShowActions = { offset ->
-                            hideKeyboard()
-                            messageActions = message
-                            messageActionAnchor = offset
-                        },
-                    )
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 4.dp,
+                        bottom = 12.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(
+                        if (displaySettings.compactMessages) 6.dp else 12.dp,
+                    ),
+                ) {
+                    items(messages, key = { it.id }) { message ->
+                        MessageBubble(
+                            message = message,
+                            showTimestamp = displaySettings.showTimestamps,
+                            canRegenerate = !isStreaming,
+                            onCopy = { copyToClipboard(context, message.content) },
+                            onRegenerate = { viewModel.regenerate(message.id) },
+                            onAddToInput = {
+                                viewModel.onInputChange((input.ifBlank { "" } + "\n" + message.content).trim())
+                            },
+                            onShowActions = { anchor ->
+                                hideKeyboard()
+                                messageActions = message
+                                messageActionAnchor = anchor
+                            },
+                        )
+                    }
+                }
+
+                // 一键到顶 / 到底：在顶部只显示到底，在底部只显示到顶。
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 10.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (!atTop) {
+                        ScrollToButton(up = true) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        }
+                    }
+                    if (!atBottom) {
+                        ScrollToButton(up = false) {
+                            scope.launch { listState.animateScrollToItem(messages.lastIndex) }
+                        }
+                    }
                 }
             }
         }
@@ -829,12 +860,12 @@ fun AiChatScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         if (actionMessage != null) {
             val isUserAction = actionMessage.role == ChatRole.USER
-            val offset = messageActionAnchor
-            val anchorAlignment = if (isUserAction) Alignment.BottomEnd else Alignment.BottomStart
-            val popupAlignment = if (isUserAction) Alignment.TopEnd else Alignment.TopStart
+            val anchor = messageActionAnchor
             Popup(
-                alignment = anchorAlignment,
-                offset = IntOffset(offset.x, offset.y + 16),
+                // 自定义定位：弹层紧贴气泡/手指位置，而不是贴在屏幕角落。
+                popupPositionProvider = remember(anchor, isUserAction) {
+                    BubblePopupPositionProvider(anchor, alignEnd = isUserAction)
+                },
                 onDismissRequest = { messageActions = null },
             ) {
                 Surface(
@@ -1050,6 +1081,57 @@ private fun formatSessionTime(timestamp: Long): String {
     return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScrollToButton(
+    up: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 3.dp,
+        modifier = Modifier.size(36.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = if (up) Icons.Filled.KeyboardArrowUp
+                else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (up) "回到顶部" else "回到底部",
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/** 让长按菜单贴着气泡弹出：默认在锚点下方，空间不足时翻到上方并夹在窗口内。 */
+private class BubblePopupPositionProvider(
+    private val anchor: IntOffset,
+    private val alignEnd: Boolean,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val margin = 8
+        var x = if (alignEnd) anchor.x - popupContentSize.width else anchor.x
+        var y = anchor.y + 14
+        if (y + popupContentSize.height > windowSize.height - margin) {
+            y = anchor.y - popupContentSize.height - 14
+        }
+        y = y.coerceAtLeast(margin)
+        x = x.coerceIn(
+            margin,
+            (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin),
+        )
+        return IntOffset(x, y)
+    }
+}
+
 @Composable
 private fun MessageBubble(
     message: ChatMessage,
@@ -1062,6 +1144,9 @@ private fun MessageBubble(
 ) {
     val isUser = message.role == ChatRole.USER
     var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
+    // 气泡在窗口中的位置，用于把长按菜单贴着气泡弹出。
+    var bubbleTopLeft by remember(message.id) { mutableStateOf(IntOffset.Zero) }
+    var moreAnchor by remember(message.id) { mutableStateOf(IntOffset.Zero) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1074,9 +1159,18 @@ private fun MessageBubble(
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
                     .widthIn(max = 320.dp)
+                    .onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInWindow()
+                        bubbleTopLeft = IntOffset(position.x.toInt(), position.y.toInt())
+                    }
                     .pointerInput(message.id) {
                         detectTapGestures(onLongPress = { offset ->
-                            onShowActions(IntOffset(offset.x.toInt(), offset.y.toInt()))
+                            onShowActions(
+                                IntOffset(
+                                    bubbleTopLeft.x + offset.x.toInt(),
+                                    bubbleTopLeft.y + offset.y.toInt(),
+                                ),
+                            )
                         })
                     },
             ) {
@@ -1146,16 +1240,13 @@ private fun MessageBubble(
                     }
                 }
             } else {
-                // 助手正文支持选中文本原生复制（SelectionContainer 会把长按交给 Android 原生选择模式）；
-                // 整消息操作由底部快捷按钮和「···更多」触发。
-                SelectionContainer {
-                    MarkdownText(
-                        markdown = message.content,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                    )
-                }
+                // 用原生 TextView 的可选文本模式：长按即可选中、复制（带系统选择工具条）。
+                MarkdownText(
+                    markdown = message.content,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                )
             }
         }
 
@@ -1191,7 +1282,14 @@ private fun MessageBubble(
                     }
                 }
                 TextButton(
-                    onClick = { onShowActions(IntOffset.Zero) },
+                    onClick = { onShowActions(moreAnchor) },
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        val position = coordinates.positionInWindow()
+                        moreAnchor = IntOffset(
+                            position.x.toInt(),
+                            (position.y + coordinates.size.height).toInt(),
+                        )
+                    },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
                     Text("···更多", style = MaterialTheme.typography.labelSmall)
@@ -1214,7 +1312,7 @@ private fun MarkdownText(
         modifier = modifier,
         factory = { viewContext ->
             TextView(viewContext).apply {
-                movementMethod = LinkMovementMethod.getInstance()
+                setTextIsSelectable(true)
                 includeFontPadding = false
                 setLineSpacing(0f, 1.12f)
             }

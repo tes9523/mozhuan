@@ -1,5 +1,6 @@
 package com.mozhuan.ui.screen.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,6 +57,8 @@ fun MemoryScreen(
     var pendingDelete by remember { mutableStateOf<String?>(null) }
 
     val editing = editingName
+    // 系统返回键先退出记忆编辑，回到记忆列表。
+    BackHandler(enabled = editing != null) { editingName = null }
     if (editing != null) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,

@@ -1,5 +1,6 @@
 package com.mozhuan.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -11,6 +12,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -42,8 +45,13 @@ fun MozhuanRoot(container: AppContainer) {
         val currentRoute = backStackEntry?.destination?.route
         val showBottomBar = currentRoute == null ||
             TopLevelDestination.entries.any { it.route == currentRoute }
+        val focusManager = LocalFocusManager.current
 
         Scaffold(
+            modifier = Modifier.pointerInput(Unit) {
+                // 点击输入框以外的空白区域时收起输入法（输入框与按钮会自行消费点击）。
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            },
             // 输入法只由对话页的 imePadding 处理，根布局不能再为键盘预留一次底部空间。
             contentWindowInsets = WindowInsets.safeDrawing.exclude(WindowInsets.ime),
             bottomBar = {

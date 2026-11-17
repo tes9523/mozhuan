@@ -26,7 +26,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -395,19 +394,9 @@ private fun SkillDetailContent(
                         Text(
                             text = skill.displayDescription,
                             modifier = Modifier.padding(top = 6.dp),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    if (!skill.isBuiltIn) {
-                        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                            Icon(
-                                imageVector = Icons.Filled.Edit,
-                                contentDescription = "编辑技能",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
                     }
                 }
             }

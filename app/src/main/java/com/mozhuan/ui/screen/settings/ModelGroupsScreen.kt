@@ -1,5 +1,6 @@
 package com.mozhuan.ui.screen.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,6 +65,8 @@ fun ModelGroupsScreen(
 ) {
     val detail by viewModel.detail.collectAsStateWithLifecycle()
     val group = detail
+    // 系统返回键先退出模型组详情，回到模型组列表。
+    BackHandler(enabled = group != null) { viewModel.back() }
     if (group == null) {
         ModelGroupList(viewModel = viewModel, onBack = onBack)
     } else {

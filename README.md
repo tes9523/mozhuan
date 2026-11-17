@@ -9,9 +9,9 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.9.7 | 技能详情去掉重复编辑入口、描述字号缩小｜模型组/记忆等内部页面返回逐级回退｜对话一键到顶 / 到底｜点击空白收起输入法｜长按菜单跟随气泡｜AI 正文可直接选中复制 | [mozhuan-v0.9.7.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.7/mozhuan-v0.9.7.apk) |
 | v0.9.6 | 技能完整导入并保留 SKILL.md 原文｜改正文 frontmatter 的 name / description 即改技能名与描述｜详情页卡片 + 原始 Skill 内容样式｜全屏编辑（正文 / 引用文件 Tab，键盘不再遮挡，引用文件可编辑）｜返回键逐级回退 | [mozhuan-v0.9.6.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.6/mozhuan-v0.9.6.apk) |
 | v0.9.5 | 技能详情默认只读 + 未保存退出提示｜附件块移到正文下方｜气泡长按气泡式菜单｜用户气泡内联编辑 + 取消按钮｜AI 气泡选中文本复制 + 添加到输入框 | [mozhuan-v0.9.5.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.5/mozhuan-v0.9.5.apk) |
-| v0.9.4 | 内置 skill-creator 换新并彻底只读｜技能附件导入与预览｜对话内思考强度切换｜@ 主动调用技能｜用户气泡复制 / 编辑 / 删除 | [mozhuan-v0.9.4.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.4/mozhuan-v0.9.4.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
 
