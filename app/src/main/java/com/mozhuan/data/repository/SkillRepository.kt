@@ -2,6 +2,7 @@ package com.mozhuan.data.repository
 
 import android.content.Context
 import com.mozhuan.data.model.Skill
+import com.mozhuan.data.model.SkillFile
 import com.mozhuan.storage.preferences.AppPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,7 +12,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
+import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 /**
  * 技能仓库：每个技能是一个 `/var/minis/skills/<id>/SKILL.md` 文件，
@@ -180,25 +183,25 @@ class SkillRepository(
         skill
     }
 
-    /** 内置技能每次扫描都恢复为 canonical 内容，外部改动或删除也不会生效。 */
+    /** 内置技能每次扫描都清空目录并重写 canonical 文件，旧内容与外部改动不会残留。 */
     private fun installBundledSkills() {
-        val parsed = parseSkillMd(BUNDLED_SKILL_CREATOR) ?: return
+        val parsed = parseSkillMd(BundledSkills.SKILL_CREATOR_MD) ?: return
         val dir = File(skillsDir, Skill.BUILT_IN_SKILL_CREATOR_ID)
-        val file = File(dir, "SKILL.md")
+        // 先清空目录，避免旧版本正文、附件或外部改动留下痕迹。
+        dir.listFiles()?.forEach { it.deleteRecursively() }
+        dir.mkdirs()
         val skill = Skill(
             id = Skill.BUILT_IN_SKILL_CREATOR_ID,
             name = parsed.name,
             description = parsed.description,
-            version = BUNDLED_SKILL_VERSION,
+            version = BundledSkills.SKILL_CREATOR_VERSION,
             body = parsed.body,
             enabled = Skill.BUILT_IN_SKILL_CREATOR_ID !in preferences.disabledSkillIds.value,
             updatedAt = System.currentTimeMillis(),
         )
-        val canonical = serialize(skill)
-        if (!file.isFile || runCatching { file.readText() }.getOrNull() != canonical) {
-            dir.mkdirs()
-            file.writeText(canonical)
-        }
+        File(dir, "SKILL.md").writeText(serialize(skill))
+        val references = File(dir, "references").apply { mkdirs() }
+        File(references, "templates.md").writeText(BundledSkills.SKILL_CREATOR_TEMPLATES_MD)
     }
 
     // ── zip 解压 ─────────────────────────────────────────────────
@@ -269,6 +272,54 @@ class SkillRepository(
     }
 
     fun skillMdPath(skillId: String): String = "/var/minis/skills/$skillId/SKILL.md"
+
+    /** 技能目录中的附件文件（不含 SKILL.md）；assets/ 属输出资源，不提供编辑。 */
+    fun listAttachments(skillId: String): List<SkillFile> {
+        val dir = File(skillsDir, skillId)
+        if (!dir.isDirectory) return emptyList()
+        return dir.walkTopDown()
+            .filter { it.isFile && it.name != "SKILL.md" }
+            .map { file ->
+                val relative = file.relativeTo(dir).path.replace('\\', '/')
+                SkillFile(
+                    path = relative,
+                    sizeBytes = file.length(),
+                    editable = !relative.startsWith("assets/"),
+                )
+            }
+            .sortedBy { it.path }
+            .toList()
+    }
+
+    /** 读取技能附件文本；路径越界或文件不存在时返回 null。 */
+    fun readAttachment(skillId: String, relativePath: String): String? {
+        if (!isSafePath(relativePath)) return null
+        val file = File(File(skillsDir, skillId), relativePath)
+        if (!file.isFile || file.length() > MAX_ARCHIVE_FILE_BYTES) return null
+        return runCatching { file.readText() }.getOrNull()
+    }
+
+    /** 技能含附件时导出为 zip（SKILL.md + 全部附件）；没有附件时返回 null。 */
+    fun exportArchive(skill: Skill): ByteArray? {
+        val dir = File(skillsDir, skill.id)
+        val attachments = dir.walkTopDown()
+            .filter { it.isFile && it.name != "SKILL.md" }
+            .toList()
+        if (attachments.isEmpty()) return null
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            zip.putNextEntry(ZipEntry("SKILL.md"))
+            zip.write(serialize(skill).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            attachments.sortedBy { it.path }.forEach { file ->
+                val relative = file.relativeTo(dir).path.replace('\\', '/')
+                zip.putNextEntry(ZipEntry(relative))
+                zip.write(file.readBytes())
+                zip.closeEntry()
+            }
+        }
+        return output.toByteArray()
+    }
 
     /** 把旧版本的 prefs 技能迁移为 SKILL.md；已有技能文件时只清理旧数据。 */
     private fun migrateLegacySkills() {
@@ -428,102 +479,7 @@ class SkillRepository(
     }
 
     companion object {
-        private const val BUNDLED_SKILL_VERSION = "2.0.0"
         private const val MAX_ARCHIVE_FILE_BYTES = 5L * 1024 * 1024
         private const val MAX_ARCHIVE_TOTAL_BYTES = 30L * 1024 * 1024
-
-        /** 内置技能原文：中文原创指南，说明技能结构、渐进式加载与创建流程。 */
-        private val BUNDLED_SKILL_CREATOR = """
----
-name: skill-creator
-description: 当用户想创建、编写或改进一个技能时使用，指导从需求理解到测试迭代，产出规范可用的 SKILL.md 与可选附件。
-version: 2.0.0
----
-
-# 技能创建指南
-
-本指南教你从零编写一个高质量技能。技能是给 AI 的「领域说明书」，让它在你指定的任务上表现得更专业、更稳定。
-
-## 什么是技能
-
-技能是一个自包含的目录包，通过 SKILL.md 提供专用知识、工作流程和工具用法。它像一份针对特定任务的上岗手册：把通用助手变成熟悉该领域的专家。
-
-技能适合承载以下内容：
-
-- 多步骤、有固定顺序的工作流程
-- 特定文件格式、API 或工具的调用方式
-- 团队内部的业务规则、术语表和数据结构
-- 可复用的脚本、模板、参考资料
-
-## 目录结构
-
-```
-技能名/
-├── SKILL.md            # 必需：frontmatter + 正文指令
-├── scripts/            # 可选：可执行脚本或代码片段
-├── references/         # 可选：按需加载的详细文档
-└── assets/             # 可选：模板、图标、示例素材
-```
-
-SKILL.md 由两部分组成：
-
-1. YAML frontmatter：位于文件开头的两行 `---` 之间，至少包含 `name` 和 `description`
-2. 正文：触发技能后加载的 Markdown 指令
-
-frontmatter 示例：
-
-```
----
-name: weekly-report
-description: 当用户需要整理本周工作、生成周报或汇总进度时使用。
-version: 1.0.0
----
-```
-
-`name` 用简短的英文短横线命名；`description` 用一句话写清「做什么」以及「什么时候触发」。description 是唯一的触发依据，务必覆盖用户可能的说法和场景，不要把触发条件只写在正文里。
-
-## 渐进式加载
-
-技能分三层加载，写作者要顺着这个机制分配内容：
-
-1. 元数据（name / description）：始终在上下文中，保持精简
-2. SKILL.md 正文：技能触发后加载，控制在 500 行以内
-3. 附件（scripts / references / assets）：真正需要时才读取
-
-因此，正文只保留高频、必需的流程；大段参考资料、长表格、示例清单放进 `references/`，并在正文中写明何时读取哪个文件。
-
-## 创建流程
-
-按顺序执行以下五步：
-
-1. **理解**：向用户确认具体任务、输入输出与成功标准，收集 2~3 个真实例子
-2. **规划**：判断是否需要附件，划清正文与附件的边界，列出关键步骤
-3. **编写**：先写 frontmatter，再按执行顺序写正文，最后补附件
-4. **测试**：用真实任务走一遍技能，检查是否漏步骤、是否误触发
-5. **迭代**：根据实际使用暴露的问题精简、补充或调整触发描述
-
-不要跳过测试。只在纸面上推演，很容易写出看似完整、实际无法执行的指令。
-
-## 写作要求
-
-- 简洁优先：默认 AI 已经足够聪明，只补充它不知道的信息
-- 命令式表达：直接写「先读取 X，再输出 Y」，少用「你可以考虑」这类模糊说法
-- 少废话：不解释显而易见的概念，不重复系统提示词已有的内容
-- 用短句和列表，步骤之间保持清晰顺序
-- 示例优于长篇说明，一个最小可用示例往往胜过三段解释
-- 同一份技能内保持术语一致，避免同义词来回切换
-
-## 不要创建的文件
-
-技能目录只放 AI 执行任务真正需要的东西。不要创建 README.md、CHANGELOG.md、INSTALLATION_GUIDE.md 等说明性文件，也不要堆放与任务无关的示例和截图。多余的上下文会稀释重点，增加误读风险。
-
-## 完成前自检
-
-- frontmatter 是否有 name 和 description，格式是否合法
-- description 是否写清触发时机
-- 正文是否在 500 行以内，是否按执行顺序组织
-- 附件路径是否在正文中被明确引用
-- 是否存在可以删除而不影响执行的内容
-""".trimIndent()
     }
 }

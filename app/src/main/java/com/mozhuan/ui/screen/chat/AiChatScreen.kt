@@ -82,6 +82,8 @@ import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ChatMessage
 import com.mozhuan.data.model.ChatRole
+import com.mozhuan.data.model.Skill
+import com.mozhuan.data.model.ThinkingLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -108,6 +110,11 @@ fun AiChatScreen(
     val sessions by viewModel.sessions.collectAsStateWithLifecycle()
     val activeSessionId by viewModel.activeSessionId.collectAsStateWithLifecycle()
     val toolStatus by viewModel.toolStatus.collectAsStateWithLifecycle()
+    val thinkingLevel by viewModel.thinkingLevel.collectAsStateWithLifecycle()
+    val skills by viewModel.skills.collectAsStateWithLifecycle()
+    val lastUserMessageId = remember(messages) {
+        messages.lastOrNull { it.role == ChatRole.USER }?.id
+    }
     val currentGroup = activeGroup?.let { group ->
         groupOptions.firstOrNull { it.group.id == group.id }?.group
     }
@@ -120,16 +127,46 @@ fun AiChatScreen(
     val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
     var showModelSheet by remember { mutableStateOf(false) }
+    var showThinkingSheet by remember { mutableStateOf(false) }
     var pendingDeleteSessionId by remember { mutableStateOf<String?>(null) }
     var messageActions by remember { mutableStateOf<ChatMessage?>(null) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editDraft by remember { mutableStateOf("") }
     var pendingDeleteMessageId by remember { mutableStateOf<String?>(null) }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val thinkingSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val hideKeyboard = {
         keyboardController?.hide()
         focusManager.clearFocus()
+    }
+
+    // 输入框末尾的 “@关键词” 触发技能选择，选择后把 @名称 插入正文。
+    val mentionMatch = remember(input) {
+        Regex("(^|\\s)@([\\p{L}\\p{N}_-]*)$").find(input)
+    }
+    val mentionQuery = mentionMatch?.groupValues?.getOrNull(2).orEmpty().lowercase()
+    val mentionCandidates = remember(mentionMatch?.value, skills) {
+        if (mentionMatch == null) {
+            emptyList()
+        } else {
+            skills.filter { it.enabled }
+                .filter {
+                    mentionQuery.isEmpty() ||
+                        it.name.lowercase().contains(mentionQuery) ||
+                        it.id.lowercase().contains(mentionQuery)
+                }
+                .take(8)
+        }
+    }
+    val applyMention: (Skill) -> Unit = { skill ->
+        val match = mentionMatch
+        if (match != null) {
+            val head = input.substring(0, match.range.first)
+            val tail = input.substring(match.range.first)
+                .replaceFirst(Regex("@([\\p{L}\\p{N}_-]*)$"), "@${skill.name} ")
+            viewModel.onInputChange(head + tail)
+        }
     }
 
     LaunchedEffect(
@@ -232,6 +269,19 @@ fun AiChatScreen(
                 }
                 if (messages.isNotEmpty() && !isStreaming) {
                     TextButton(onClick = { showClearDialog = true }) { Text("清空") }
+                }
+                Surface(
+                    onClick = { showThinkingSheet = true },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.padding(end = 2.dp),
+                ) {
+                    Text(
+                        text = "思考·${thinkingLevel.label}",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
                 }
                 IconButton(onClick = onOpenPersona) {
                     Icon(Icons.Filled.Settings, contentDescription = "人格设置")
@@ -362,12 +412,65 @@ fun AiChatScreen(
             )
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (mentionCandidates.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(16.dp),
+                    tonalElevation = 3.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                ) {
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        mentionCandidates.forEach { skill ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { applyMention(skill) }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = skill.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "skills/${skill.id}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Text(
+                                        text = "skills",
+                                        modifier = Modifier.padding(
+                                            horizontal = 6.dp,
+                                            vertical = 2.dp,
+                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
             OutlinedTextField(
                 value = input,
                 onValueChange = viewModel::onInputChange,
@@ -416,6 +519,7 @@ fun AiChatScreen(
                 ) {
                     Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "发送")
                 }
+            }
             }
         }
     }
@@ -590,6 +694,58 @@ fun AiChatScreen(
         }
     }
 
+    if (showThinkingSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showThinkingSheet = false },
+            sheetState = thinkingSheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp),
+            ) {
+                Text(
+                    text = "思考强度",
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "仅对当前会话生效；初始跟随模型默认值，未配置时使用中度。",
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ThinkingLevel.entries.forEach { level ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.setThinkingLevel(level)
+                                showThinkingSheet = false
+                            }
+                            .padding(horizontal = 24.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = level.label,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        if (level == thinkingLevel) {
+                            Icon(
+                                Icons.Filled.Check,
+                                contentDescription = "当前强度",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -664,18 +820,22 @@ fun AiChatScreen(
                 )
                 if (!isStreaming) {
                     if (actionMessage.role == ChatRole.USER) {
+                        // 已发送的气泡只提供复制 / 编辑 / 删除；编辑仅限最新一条用户消息。
+                        if (actionMessage.id == lastUserMessageId) {
+                            MessageActionButton(
+                                text = "编辑",
+                                onClick = {
+                                    editingMessage = actionMessage
+                                    editDraft = actionMessage.content
+                                    messageActions = null
+                                },
+                            )
+                        }
                         MessageActionButton(
-                            text = "重试",
+                            text = "删除",
+                            destructive = true,
                             onClick = {
-                                viewModel.retryUserMessage(actionMessage.id)
-                                messageActions = null
-                            },
-                        )
-                        MessageActionButton(
-                            text = "编辑并重发",
-                            onClick = {
-                                editingMessage = actionMessage
-                                editDraft = actionMessage.content
+                                pendingDeleteMessageId = actionMessage.id
                                 messageActions = null
                             },
                         )
@@ -687,15 +847,15 @@ fun AiChatScreen(
                                 messageActions = null
                             },
                         )
+                        MessageActionButton(
+                            text = "从此处删除",
+                            destructive = true,
+                            onClick = {
+                                pendingDeleteMessageId = actionMessage.id
+                                messageActions = null
+                            },
+                        )
                     }
-                    MessageActionButton(
-                        text = "从此处删除",
-                        destructive = true,
-                        onClick = {
-                            pendingDeleteMessageId = actionMessage.id
-                            messageActions = null
-                        },
-                    )
                 }
             }
         }

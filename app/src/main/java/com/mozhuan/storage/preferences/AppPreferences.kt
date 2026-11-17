@@ -323,7 +323,12 @@ class AppPreferences(context: Context) {
                             contextTurns = item.optInt("contextTurns", 10),
                             temperature = item.optDouble("temperature", 0.8).toFloat(),
                             topP = item.optDouble("topP", 1.0).toFloat(),
-                            thinkingLevel = ThinkingLevel.from(item.optString("thinkingLevel")),
+                            thinkingLevel = if (item.has("thinkingLevel")) {
+                                ThinkingLevel.from(item.optString("thinkingLevel"))
+                            } else {
+                                // 老配置没有思考强度字段：按需求默认中度。
+                                ThinkingLevel.MEDIUM
+                            },
                             isCustom = item.optBoolean("isCustom", false),
                             createdAt = item.optLong("createdAt", System.currentTimeMillis()),
                         ),
@@ -530,6 +535,7 @@ class AppPreferences(context: Context) {
                 JSONObject()
                     .put("id", session.id)
                     .put("title", session.title)
+                    .put("thinkingLevel", session.thinkingLevel?.name ?: "")
                     .put("createdAt", session.createdAt)
                     .put("updatedAt", session.updatedAt)
                     .put(
@@ -587,6 +593,9 @@ class AppPreferences(context: Context) {
                             },
                             createdAt = item.optLong("createdAt", System.currentTimeMillis()),
                             updatedAt = item.optLong("updatedAt", System.currentTimeMillis()),
+                            thinkingLevel = item.optString("thinkingLevel")
+                                .takeIf { it.isNotBlank() }
+                                ?.let { ThinkingLevel.from(it) },
                         ),
                     )
                 }

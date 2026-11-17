@@ -2,6 +2,7 @@ package com.mozhuan.data.repository
 
 import com.mozhuan.data.model.ChatMessage
 import com.mozhuan.data.model.ChatSession
+import com.mozhuan.data.model.ThinkingLevel
 import com.mozhuan.storage.preferences.AppPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,6 +84,14 @@ class SessionRepository(
             if (it.id == sessionId) it.copy(title = trimmed) else it
         }
         schedulePersist()
+    }
+
+    /** 更新会话的思考强度；null 表示跟随模型默认值。 */
+    fun setThinkingLevel(sessionId: String, level: ThinkingLevel?) {
+        _sessions.value = _sessions.value.map {
+            if (it.id == sessionId) it.copy(thinkingLevel = level, updatedAt = System.currentTimeMillis()) else it
+        }
+        persistNow()
     }
 
     /** 更新某个会话的消息（流式期间高频调用，落盘防抖）。 */

@@ -2,6 +2,7 @@ package com.mozhuan.ui.screen.settings
 
 import androidx.lifecycle.ViewModel
 import com.mozhuan.data.model.Skill
+import com.mozhuan.data.model.SkillFile
 import com.mozhuan.data.repository.SkillRepository
 import kotlinx.coroutines.flow.StateFlow
 
@@ -36,6 +37,13 @@ class SkillViewModel(
         repository.importArchive(input)
 
     fun exportSkill(skill: Skill): String = repository.exportMarkdown(skill)
+
+    fun exportArchive(skill: Skill): ByteArray? = repository.exportArchive(skill)
+
+    fun attachments(skillId: String): List<SkillFile> = repository.listAttachments(skillId)
+
+    fun readAttachment(skillId: String, path: String): String? =
+        repository.readAttachment(skillId, path)
 
     fun skillPath(skillId: String): String = repository.skillMdPath(skillId)
 }

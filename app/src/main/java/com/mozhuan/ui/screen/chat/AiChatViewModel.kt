@@ -12,6 +12,8 @@ import com.mozhuan.data.model.GroupRoutingStrategy
 import com.mozhuan.data.model.ModelEntry
 import com.mozhuan.data.model.ModelGroup
 import com.mozhuan.data.model.ProviderInstance
+import com.mozhuan.data.model.Skill
+import com.mozhuan.data.model.ThinkingLevel
 import com.mozhuan.data.model.TokenUsage
 import com.mozhuan.data.repository.MemoryRepository
 import com.mozhuan.data.repository.ProviderRepository
@@ -91,6 +93,9 @@ class AiChatViewModel(
     val selectedEntryId: StateFlow<String> = providerRepository.selectedEntryId
     val selectedGroupId: StateFlow<String> = providerRepository.selectedGroupId
 
+    /** 已安装技能，供输入框的 @ 选择器使用。 */
+    val skills: StateFlow<List<Skill>> = skillRepository.skills
+
     val modelOptions: StateFlow<List<ModelOption>> =
         combine(providerRepository.providers, providerRepository.entries) { providers, entries ->
             val byId = providers.associateBy { it.id }
@@ -138,6 +143,18 @@ class AiChatViewModel(
             resolveActive(providers, entries, selectedId)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /** 当前会话的思考强度：会话显式设置优先，否则跟随模型默认值（缺省中度）。 */
+    val thinkingLevel: StateFlow<ThinkingLevel> =
+        combine(
+            sessionRepository.sessions,
+            sessionRepository.activeSessionId,
+            activeModel,
+        ) { sessions, sessionId, model ->
+            sessions.firstOrNull { it.id == sessionId }?.thinkingLevel
+                ?: model?.entry?.thinkingLevel?.takeIf { it != ThinkingLevel.OFF }
+                ?: ThinkingLevel.MEDIUM
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, ThinkingLevel.MEDIUM)
+
     private var streamJob: Job? = null
 
     /** 当前生成所属会话，用于丢弃切换会话后迟到的流式增量。 */
@@ -146,6 +163,12 @@ class AiChatViewModel(
 
     fun onInputChange(text: String) {
         _input.value = text
+    }
+
+    /** 修改当前会话的思考强度并落盘。 */
+    fun setThinkingLevel(level: ThinkingLevel) {
+        val sessionId = sessionRepository.activeSessionId.value
+        if (sessionId.isNotBlank()) sessionRepository.setThinkingLevel(sessionId, level)
     }
 
     fun selectModel(entryId: String) {
@@ -252,8 +275,10 @@ class AiChatViewModel(
         restartFromUser(messageId, editedContent = null)
     }
 
-    /** 修改指定用户消息后重新生成。 */
+    /** 修改指定用户消息后重新生成；仅允许编辑最新一条用户消息。 */
     fun editUserMessage(messageId: String, content: String) {
+        val latestUser = _messages.value.lastOrNull { it.role == ChatRole.USER }
+        if (latestUser?.id != messageId) return
         restartFromUser(messageId, editedContent = content.trim())
     }
 
@@ -391,7 +416,9 @@ class AiChatViewModel(
 
     private suspend fun streamFrom(model: ActiveModel) {
         var reportedUsage = TokenUsage()
-        val history = buildApiMessages(model.entry.contextTurns)
+        // 会话级思考强度覆盖模型配置，其余参数保持模型设置。
+        val entry = model.entry.copy(thinkingLevel = thinkingLevel.value)
+        val history = buildApiMessages(entry.contextTurns)
         val systemPrompt = buildSystemPrompt()
         val tools = if (model.provider.type.apiStyle == ApiStyle.OPENAI_CHAT) {
             toolRegistry.specs(settingsRepository.toolSettings.value)
@@ -405,7 +432,7 @@ class AiChatViewModel(
             val roundText = StringBuilder()
             aiClient.streamChat(
                 provider = model.provider,
-                entry = model.entry,
+                entry = entry,
                 messages = history + transcript,
                 systemPrompt = systemPrompt,
                 tools = tools,
@@ -426,7 +453,7 @@ class AiChatViewModel(
                             outputTokens = (chunk.outputTokens - reportedUsage.outputTokens)
                                 .coerceAtLeast(0),
                         )
-                        tokenUsageRepository.record(model.provider, model.entry, delta)
+                        tokenUsageRepository.record(model.provider, entry, delta)
                         reportedUsage = TokenUsage(
                             inputTokens = maxOf(reportedUsage.inputTokens, chunk.inputTokens),
                             outputTokens = maxOf(reportedUsage.outputTokens, chunk.outputTokens),
@@ -497,16 +524,42 @@ class AiChatViewModel(
         setMessages(list.dropLast(1) + transform(list.last()))
     }
 
-    /** 人格 + 技能元数据 + 记忆；技能正文只在模型需要时通过 read_file 加载。 */
+    /**
+     * 人格 + 技能 + 记忆。
+     * 普通技能只注入元数据，模型按需 read_file；
+     * 用户在输入框用 @ 明确指定的技能则直接注入正文，立即生效。
+     */
     private fun buildSystemPrompt(): String = buildString {
         val persona = settingsRepository.currentPersona().trim()
         if (persona.isNotEmpty()) append(persona)
-        val skills = skillRepository.enabledSkills().take(MAX_DISCOVERABLE_SKILLS)
-        if (skills.isNotEmpty()) {
+
+        val allSkills = skillRepository.enabledSkills().take(MAX_DISCOVERABLE_SKILLS)
+        val mentioned = mentionedSkills(allSkills)
+        val mentionedIds = mentioned.map { it.id }.toSet()
+
+        if (mentioned.isNotEmpty()) {
+            if (isNotEmpty()) append("\n\n")
+            append("# 用户已通过 @ 指定的技能\n")
+            append("用户已明确调用以下技能。严格按其中的流程执行；需要附件时用 read_file 按路径读取，不要预先加载全部附件。\n")
+            mentioned.forEach { skill ->
+                append("\n## ").append(skill.name.trim()).append('\n')
+                append(skill.body.trim()).append('\n')
+                val files = skillRepository.listAttachments(skill.id)
+                if (files.isNotEmpty()) {
+                    append("\n附件：\n")
+                    files.forEach { file ->
+                        append("- skills/").append(skill.id).append('/').append(file.path).append('\n')
+                    }
+                }
+            }
+        }
+
+        val discoverable = allSkills.filterNot { it.id in mentionedIds }
+        if (discoverable.isNotEmpty()) {
             if (isNotEmpty()) append("\n\n")
             append("# 可用技能\n")
             append("以下仅包含技能元数据。当用户任务与某个技能的描述匹配时，先调用 read_file 读取对应 path 的 SKILL.md，再遵循其中的指令；不要凭空假设技能正文。附件也按需读取，不要预先加载。\n")
-            skills.forEach { skill ->
+            discoverable.forEach { skill ->
                 append("\n- name: ").append(skill.name.trim().replace('\n', ' '))
                 append("\n  description: ")
                     .append(skill.displayDescription.trim().replace(Regex("\\s+"), " ").take(MAX_SKILL_DESCRIPTION_CHARS))
@@ -517,6 +570,20 @@ class AiChatViewModel(
         if (memory.isNotBlank()) {
             if (isNotEmpty()) append("\n\n")
             append(memory)
+        }
+    }
+
+    /** 从当前待发送的用户消息中解析 @技能名 / @技能 id。 */
+    private fun mentionedSkills(enabled: List<Skill>): List<Skill> {
+        val pending = _messages.value.dropLast(1)
+            .lastOrNull()
+            ?.takeIf { it.role == ChatRole.USER }
+            ?.content
+            ?: return emptyList()
+        if (!pending.contains('@')) return emptyList()
+        return enabled.filter { skill ->
+            val name = skill.name.trim()
+            name.isNotEmpty() && (pending.contains("@$name") || pending.contains("@${skill.id}"))
         }
     }
 

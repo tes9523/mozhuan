@@ -23,6 +23,8 @@ data class ChatSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "新会话",
     val messages: List<ChatMessage> = emptyList(),
+    /** 本会话的思考强度；null 表示跟随当前模型的默认强度。 */
+    val thinkingLevel: ThinkingLevel? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {
@@ -177,7 +179,7 @@ data class ModelEntry(
     val contextTurns: Int = 10,
     val temperature: Float = 0.8f,
     val topP: Float = 1.0f,
-    val thinkingLevel: ThinkingLevel = ThinkingLevel.OFF,
+    val thinkingLevel: ThinkingLevel = ThinkingLevel.MEDIUM,
     val isCustom: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
@@ -277,6 +279,13 @@ data class Skill(
         const val BUILT_IN_SKILL_CREATOR_ID = "skill-creator"
     }
 }
+
+/** 技能目录中的附件文件，用于详情页展示 references / assets 等资源。 */
+data class SkillFile(
+    val path: String,
+    val sizeBytes: Long,
+    val editable: Boolean,
+)
 
 /** 一次请求的 Token 用量。 */
 data class TokenUsage(

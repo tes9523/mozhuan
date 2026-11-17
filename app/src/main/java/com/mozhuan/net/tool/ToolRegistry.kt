@@ -2,6 +2,7 @@ package com.mozhuan.net.tool
 
 import android.content.Context
 import com.mozhuan.data.model.ProxySettings
+import com.mozhuan.data.model.Skill
 import com.mozhuan.data.model.ToolSettings
 import com.mozhuan.data.repository.MemoryRepository
 import kotlinx.coroutines.Dispatchers
@@ -76,9 +77,9 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "write_file",
-                    description = "把文本写入书稿目录（book/）。仅用于保存正文、大纲、设定等创作内容，会自动创建父目录。",
+                    description = "把文本写入 book/ 或 skills/ 目录，自动创建父目录。创建或修改技能时使用 skills/<name>/SKILL.md 以及 skills/<name>/references/ 等路径；内置 skill-creator 只读，不可写入。",
                     parameters = parameters(
-                        "path" to stringProperty("相对书稿目录的路径，例如 第一章.md"),
+                        "path" to stringProperty("相对路径，例如 第一章.md（书稿）或 skills/my-skill/SKILL.md（技能）"),
                         "content" to stringProperty("要写入的完整文本"),
                         required = listOf("path", "content"),
                     ),
@@ -145,18 +146,28 @@ class ToolRegistry(
     }
 
     private fun writeFile(path: String, content: String): String {
-        val safe = path.trim().removePrefix("book/").removePrefix("book\\")
-        if (safe.isBlank() || safe.contains("..") || safe.startsWith("/") || safe.contains('\\')) {
+        val normalized = path.trim().replace('\\', '/').removePrefix("/")
+        if (normalized.isBlank() || normalized.contains("..") || normalized.contains('\\')) {
             return "路径不合法：$path"
+        }
+        val target = when {
+            normalized.startsWith("book/") -> normalized
+            normalized.startsWith("skills/") -> normalized
+            else -> return "只能写入 book/ 或 skills/ 目录：$path"
+        }
+        if (target.startsWith("skills/") &&
+            target.removePrefix("skills/").substringBefore('/') == Skill.BUILT_IN_SKILL_CREATOR_ID
+        ) {
+            return "内置技能 skill-creator 只读，不能修改"
         }
         if (content.length > MAX_TEXT_CHARS) {
             return "内容过长，单次最多写入 $MAX_TEXT_CHARS 字"
         }
-        val file = File(bookDir, safe)
+        val file = File(root, target)
         file.parentFile?.mkdirs()
         return runCatching {
             file.writeText(content)
-            "已写入 book/$safe（${content.length} 字）"
+            "已写入 $target（${content.length} 字）"
         }.getOrElse { "写入失败：${it.message}" }
     }
 

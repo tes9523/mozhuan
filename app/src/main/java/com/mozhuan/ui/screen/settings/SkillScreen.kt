@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,11 +18,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -268,7 +274,7 @@ private fun SkillEditorContent(
     val isBuiltIn = skill?.isBuiltIn == true
 
     val context = LocalContext.current
-    val exportLauncher = rememberLauncherForActivityResult(
+    val exportMdLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/markdown"),
     ) { uri ->
         val current = skill ?: return@rememberLauncherForActivityResult
@@ -280,6 +286,26 @@ private fun SkillEditorContent(
                 }
         }
     }
+    val exportZipLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val current = skill ?: return@rememberLauncherForActivityResult
+        if (uri != null) {
+            runCatching {
+                val bytes = viewModel.exportArchive(current)
+                    ?: error("技能附件已不存在")
+                context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: error("无法写入所选位置")
+            }
+                .onSuccess { Toast.makeText(context, "技能与附件已导出", Toast.LENGTH_SHORT).show() }
+                .onFailure {
+                    Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    var previewPath by remember(skill?.id) { mutableStateOf<String?>(null) }
+    val attachments = remember(skill?.id) { skill?.let { viewModel.attachments(it.id) }.orEmpty() }
 
     Column(
         modifier = Modifier
@@ -297,7 +323,12 @@ private fun SkillEditorContent(
                 if (skill != null) {
                     TextButton(
                         onClick = {
-                            exportLauncher.launch("${TextFiles.safeFileName(skill.name)}.md")
+                            val safe = TextFiles.safeFileName(skill.name)
+                            if (attachments.isEmpty()) {
+                                exportMdLauncher.launch("$safe.md")
+                            } else {
+                                exportZipLauncher.launch("$safe.zip")
+                            }
                         },
                     ) {
                         Text("导出")
@@ -365,6 +396,37 @@ private fun SkillEditorContent(
                     },
                 )
             }
+            if (attachments.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                ) {
+                    Text(
+                        text = "附件（${attachments.size}）" +
+                            if (attachments.any { !it.editable }) " · assets 为输出资源，不提供编辑" else "",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LazyRow(
+                        modifier = Modifier.padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(attachments, key = { it.path }) { file ->
+                            AssistChip(
+                                onClick = { previewPath = file.path },
+                                label = {
+                                    Text(
+                                        text = file.path,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             OutlinedTextField(
                 value = body,
                 onValueChange = { body = it },
@@ -406,6 +468,31 @@ private fun SkillEditorContent(
                 }
             }
         }
+    }
+
+    val preview = previewPath
+    if (preview != null) {
+        val content = remember(skill?.id, preview) {
+            skill?.let { viewModel.readAttachment(it.id, preview) }
+        }
+        AlertDialog(
+            onDismissRequest = { previewPath = null },
+            title = { Text(preview) },
+            text = {
+                Text(
+                    text = content ?: "无法预览该文件（二进制文件或超过大小限制）",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                    modifier = Modifier
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { previewPath = null }) { Text("关闭") }
+            },
+        )
     }
 
     if (showDelete) {
