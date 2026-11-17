@@ -579,6 +579,16 @@ class AiChatViewModel(
             append("世界观写入 book/书名/小说资料/设定/世界观/，人物写入 book/书名/小说资料/设定/人物库/，")
             append("大纲写入 book/书名/小说资料/大纲/，章节摘要写入 book/书名/小说资料/章节摘要/。")
             append("写入任一文件即可在书稿页看到整本小说，缺失的目录会自动补齐。")
+            val mounts = settingsRepository.mountedFolders.value
+            if (mounts.isNotEmpty()) {
+                append("\n\n# 已挂载的外部文件夹\n")
+                append("用户已挂载以下外部文件夹，可通过 mounts/<名称>/<相对路径> 读写：")
+                mounts.forEach { mount ->
+                    append("\n- mounts/").append(mount.name).append('/')
+                }
+                append("\n用户要求把新书放到某个文件夹时，在对应挂载目录下创建子文件夹并写入完整结构，")
+                append("例如 mounts/墨撰/新书/章节内容/第01章 标题.md。")
+            }
         }
     }
 
@@ -646,7 +656,7 @@ class AiChatViewModel(
 
     private companion object {
         /** 单次回复内最多执行几轮工具调用，避免死循环。 */
-        const val MAX_TOOL_ROUNDS = 4
+        const val MAX_TOOL_ROUNDS = 100
         const val MAX_DISCOVERABLE_SKILLS = 20
         const val MAX_SKILL_DESCRIPTION_CHARS = 200
     }

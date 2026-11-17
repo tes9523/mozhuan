@@ -9,9 +9,9 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.9.9 | 小说页只显示小说，过滤 skills 等非小说目录｜导入仅支持 TXT / DOCX / MD 并校验格式｜工具调用轮数上限提升到 100｜AI 可在挂载的外部文件夹（mounts/<名称>/）下创建新书与目录结构，挂载目录中的小说也会呈现在小说页｜技能编辑页系统返回键 / 手势也会弹出保存提示 | [mozhuan-v0.9.9.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.9/mozhuan-v0.9.9.apk) |
 | v0.9.8 | 技能按内置 / 自定义分组，内置置顶｜书稿功能开启：我的小说空态、新建作品（封面 + 名称）、目录浏览与正文编辑｜支持导入 TXT / DOCX / MD 并自动识别书名与章节｜AI 对话写入的小说直接呈现在书稿，作品固定「小说资料（设定 / 大纲 / 章节摘要）+ 章节内容」结构 | [mozhuan-v0.9.8.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.8/mozhuan-v0.9.8.apk) |
 | v0.9.7 | 技能详情去掉重复编辑入口、描述字号缩小｜模型组/记忆等内部页面返回逐级回退｜对话一键到顶 / 到底｜点击空白收起输入法｜长按菜单跟随气泡｜AI 正文可直接选中复制 | [mozhuan-v0.9.7.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.7/mozhuan-v0.9.7.apk) |
-| v0.9.6 | 技能完整导入并保留 SKILL.md 原文｜改正文 frontmatter 的 name / description 即改技能名与描述｜详情页卡片 + 原始 Skill 内容样式｜全屏编辑（正文 / 引用文件 Tab，键盘不再遮挡，引用文件可编辑）｜返回键逐级回退 | [mozhuan-v0.9.6.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.6/mozhuan-v0.9.6.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
 

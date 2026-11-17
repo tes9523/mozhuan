@@ -1,10 +1,13 @@
 package com.mozhuan.net.tool
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import com.mozhuan.data.model.ProxySettings
 import com.mozhuan.data.model.Skill
 import com.mozhuan.data.model.ToolSettings
 import com.mozhuan.data.repository.MemoryRepository
+import com.mozhuan.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -35,15 +38,17 @@ data class ToolSpec(
 
 /**
  * 内置工具：书稿读写、目录查看、网页抓取与记忆写入。
- * 所有文件操作都以应用私有目录为根，且只能访问 book / skills / memory 三个子目录。
+ * 文件操作可访问应用私有目录（book / skills / memory）以及挂载的外部文件夹（mounts/<名称>/）。
  */
 class ToolRegistry(
     context: Context,
     private val memoryRepository: MemoryRepository,
+    private val settingsRepository: SettingsRepository,
     private val proxyProvider: () -> ProxySettings,
 ) {
 
-    private val root = context.applicationContext.filesDir
+    private val context = context.applicationContext
+    private val root = context.filesDir
     private val bookDir = File(root, "book").apply { mkdirs() }
 
     @Volatile
@@ -57,18 +62,18 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "list_files",
-                    description = "列出书稿、技能或记忆目录下的文件。只读，不会修改任何内容。",
+                    description = "列出 book / skills / memory 或挂载的外部文件夹（mounts/<名称>/）下的文件。只读，不会修改任何内容。",
                     parameters = parameters(
-                        "path" to stringProperty("目录路径，例如 book、skills、memory"),
+                        "path" to stringProperty("目录路径，例如 book、skills、memory、mounts/墨撰"),
                     ),
                 ),
             )
             add(
                 ToolSpec(
                     name = "read_file",
-                    description = "读取书稿、技能或记忆目录中的文本文件。任务匹配某个已启用技能时，用此工具按 path 加载其 SKILL.md；也可查阅设定、素材或记忆。",
+                    description = "读取书稿、技能、记忆或挂载外部文件夹中的文本文件。任务匹配某个已启用技能时，用此工具按 path 加载其 SKILL.md；也可查阅设定、素材或记忆。",
                     parameters = parameters(
-                        "path" to stringProperty("文件路径，例如 book/第一章.md、skills/xxx/SKILL.md"),
+                        "path" to stringProperty("文件路径，例如 book/第一章.md、skills/xxx/SKILL.md、mounts/墨撰/我的小说/大纲.md"),
                     ),
                 ),
             )
@@ -77,9 +82,9 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "write_file",
-                    description = "把文本写入 book/ 或 skills/ 目录，自动创建父目录。创建或修改技能时使用 skills/<name>/SKILL.md 以及 skills/<name>/references/ 等路径；内置 skill-creator 只读，不可写入。",
+                    description = "把文本写入 book/、skills/ 或挂载的外部文件夹 mounts/<名称>/，自动创建父目录。创建或修改技能时使用 skills/<name>/SKILL.md 以及 skills/<name>/references/ 等路径；新建小说时写入 book/<书名>/... 或 mounts/<挂载名>/<书名>/...；内置 skill-creator 只读，不可写入。",
                     parameters = parameters(
-                        "path" to stringProperty("相对路径，例如 第一章.md（书稿）或 skills/my-skill/SKILL.md（技能）"),
+                        "path" to stringProperty("相对路径，例如 第一章.md（书稿）、skills/my-skill/SKILL.md（技能）、mounts/墨撰/新书/章节内容/第01章.md"),
                         "content" to stringProperty("要写入的完整文本"),
                         required = listOf("path", "content"),
                     ),
@@ -125,6 +130,7 @@ class ToolRegistry(
     }
 
     private fun listFiles(path: String): String {
+        if (path.startsWith("mounts/")) return listMountedFiles(path)
         val dir = resolve(path) ?: return "路径不合法：$path"
         if (!dir.exists()) return "目录不存在：$path"
         if (!dir.isDirectory) return "不是目录：$path"
@@ -138,6 +144,7 @@ class ToolRegistry(
     }
 
     private fun readFile(path: String): String {
+        if (path.startsWith("mounts/")) return readMountedFile(path)
         val file = resolve(path) ?: return "路径不合法：$path"
         if (!file.exists() || !file.isFile) return "文件不存在：$path"
         if (file.length() > MAX_FILE_BYTES) return "文件过大，无法读取（上限 ${MAX_FILE_BYTES / 1024}KB）"
@@ -150,10 +157,11 @@ class ToolRegistry(
         if (normalized.isBlank() || normalized.contains("..") || normalized.contains('\\')) {
             return "路径不合法：$path"
         }
+        if (normalized.startsWith("mounts/")) return writeMountedFile(normalized, content)
         val target = when {
             normalized.startsWith("book/") -> normalized
             normalized.startsWith("skills/") -> normalized
-            else -> return "只能写入 book/ 或 skills/ 目录：$path"
+            else -> return "只能写入 book/、skills/ 或 mounts/ 目录：$path"
         }
         if (target.startsWith("skills/") &&
             target.removePrefix("skills/").substringBefore('/') == Skill.BUILT_IN_SKILL_CREATOR_ID
@@ -216,6 +224,81 @@ class ToolRegistry(
 
     private fun relative(file: File): String =
         runCatching { file.relativeTo(root).path }.getOrDefault(file.name)
+
+    // ── 挂载的外部文件夹（SAF） ──────────────────────────────────
+
+    /** 把 mounts/<名称>/<相对路径> 解析到挂载目录下的 DocumentFile。 */
+    private fun resolveMounted(path: String): DocumentFile? {
+        val rest = path.trim().removePrefix("mounts/").trim('/')
+        val segments = rest.split('/').filter { it.isNotBlank() }
+        if (segments.isEmpty()) return null
+        val mountName = segments.first()
+        val mount = settingsRepository.mountedFolders.value
+            .firstOrNull { it.name == mountName }
+            ?: return null
+        var current = runCatching { DocumentFile.fromTreeUri(context, Uri.parse(mount.uri)) }
+            .getOrNull() ?: return null
+        for (seg in segments.drop(1)) {
+            current = current.findFile(seg) ?: return null
+        }
+        return current
+    }
+
+    private fun listMountedFiles(path: String): String {
+        val dir = resolveMounted(path) ?: return "路径不合法或未找到挂载目录：$path"
+        if (!dir.isDirectory) return "不是目录：$path"
+        val items = runCatching { dir.listFiles().sortedBy { it.name.orEmpty() } }
+            .getOrElse { return "读取目录失败：${it.message}" }
+        if (items.isEmpty()) return "目录为空：$path"
+        return items.joinToString("\n") { item ->
+            val type = if (item.isDirectory) "[目录]" else "[文件]"
+            val size = if (item.isFile) " ${item.length()}B" else ""
+            "$type ${item.name.orEmpty()}$size"
+        }
+    }
+
+    private fun readMountedFile(path: String): String {
+        val file = resolveMounted(path) ?: return "路径不合法或未找到挂载目录：$path"
+        if (!file.isFile) return "文件不存在：$path"
+        if (file.length() > MAX_FILE_BYTES) return "文件过大，无法读取（上限 ${MAX_FILE_BYTES / 1024}KB）"
+        val text = runCatching {
+            context.contentResolver.openInputStream(file.uri)?.use {
+                it.readBytes().toString(Charsets.UTF_8)
+            }
+        }.getOrElse { return "读取失败：${it.message}" }
+        return text?.take(MAX_TEXT_CHARS) ?: "读取失败"
+    }
+
+    private fun writeMountedFile(path: String, content: String): String {
+        val rest = path.trim().removePrefix("mounts/").trim('/')
+        val segments = rest.split('/').filter { it.isNotBlank() }
+        if (segments.size < 2) return "挂载路径格式为 mounts/<名称>/<相对路径>：$path"
+        val mountName = segments.first()
+        val mount = settingsRepository.mountedFolders.value
+            .firstOrNull { it.name == mountName }
+            ?: return "未找到挂载的文件夹「$mountName」，请先在设置中挂载"
+        var current = runCatching { DocumentFile.fromTreeUri(context, Uri.parse(mount.uri)) }
+            .getOrNull() ?: return "挂载目录授权已失效：$mountName"
+        for (seg in segments.drop(1).dropLast(1)) {
+            current = current.findFile(seg) ?: current.createDirectory(seg) ?: return "创建目录失败：$seg"
+        }
+        val fileName = segments.last()
+        val existing = current.findFile(fileName)
+        val target = if (existing != null && existing.isFile) {
+            existing
+        } else {
+            current.createFile("text/plain", fileName) ?: return "创建文件失败：$fileName"
+        }
+        if (content.length > MAX_TEXT_CHARS) {
+            return "内容过长，单次最多写入 $MAX_TEXT_CHARS 字"
+        }
+        return runCatching {
+            context.contentResolver.openOutputStream(target.uri, "wt")?.use { out ->
+                out.write(content.toByteArray(Charsets.UTF_8))
+            }
+            "已写入 $path（${content.length} 字）"
+        }.getOrElse { "写入失败：${it.message}" }
+    }
 
     private fun http(): OkHttpClient {
         val settings = proxyProvider()

@@ -31,7 +31,7 @@ class AppContainer(context: Context) {
 
     val skillRepository = SkillRepository(applicationContext, preferences)
 
-    val booksRepository = BooksRepository(applicationContext)
+    val booksRepository = BooksRepository(applicationContext, settingsRepository)
 
     val tokenUsageRepository = TokenUsageRepository(preferences)
 
@@ -44,6 +44,7 @@ class AppContainer(context: Context) {
     val toolRegistry = ToolRegistry(
         context = applicationContext,
         memoryRepository = memoryRepository,
+        settingsRepository = settingsRepository,
         proxyProvider = { preferences.proxySettings.value },
     )
 
