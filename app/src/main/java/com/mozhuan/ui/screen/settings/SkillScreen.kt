@@ -40,6 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -192,7 +193,7 @@ fun SkillScreen(
             } else {
                 item {
                     SettingsGroup(
-                        footer = "内置 skill-creator 只可查看、启停和导出；其他技能可编辑，导入后默认停用。",
+                        footer = "内置 skill-creator 只可查看、启停和导出；其他技能进入页面默认只读，点右上「编辑」才允许修改。",
                     ) {
                         skills.forEachIndexed { index, skill ->
                             SkillRow(
@@ -271,7 +272,18 @@ private fun SkillEditorContent(
     var body by remember(skill?.id) { mutableStateOf(skill?.body.orEmpty()) }
     var enabled by remember(skill?.id) { mutableStateOf(skill?.enabled ?: true) }
     var showDelete by remember { mutableStateOf(false) }
+    var showDiscard by remember { mutableStateOf(false) }
     val isBuiltIn = skill?.isBuiltIn == true
+    // 内置技能永远只可读；新建时直接进入可编辑；已有自定义技能默认只读，点「编辑」才解锁。
+    var editing by remember(skill?.id) { mutableStateOf(skill == null) }
+    val canEdit = !isBuiltIn && editing
+    val hasChanges = remember(skill?.id) {
+        if (skill == null) return@remember mutableStateOf(false)
+        derivedStateOf {
+            name != skill.name || description != skill.description ||
+                body != skill.body || enabled != skill.enabled
+        }
+    }
 
     val context = LocalContext.current
     val exportMdLauncher = rememberLauncherForActivityResult(
@@ -307,32 +319,53 @@ private fun SkillEditorContent(
     var previewPath by remember(skill?.id) { mutableStateOf<String?>(null) }
     val attachments = remember(skill?.id) { skill?.let { viewModel.attachments(it.id) }.orEmpty() }
 
+    fun save() {
+        viewModel.saveSkill(skill?.id, name, description, body, enabled)
+        Toast.makeText(context, "技能已保存", Toast.LENGTH_SHORT).show()
+        onClose()
+    }
+
+    fun handleBack() {
+        if (canEdit && hasChanges.value) showDiscard = true else onClose()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .imePadding(),
     ) {
         TopAppBar(
-            title = { Text(if (skill == null) "新增技能" else if (isBuiltIn) "内置技能（只读）" else "编辑技能") },
+            title = { Text(if (skill == null) "新增技能" else if (isBuiltIn) "内置技能（只读）" else if (editing) "编辑技能" else "查看技能") },
             navigationIcon = {
-                IconButton(onClick = onClose) {
+                IconButton(onClick = ::handleBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
             },
             actions = {
                 if (skill != null) {
+                    if (!isBuiltIn) {
+                        if (editing) {
+                            TextButton(onClick = { editing = false }) { Text("取消编辑") }
+                            TextButton(
+                                onClick = ::save,
+                                enabled = name.isNotBlank() && body.isNotBlank(),
+                            ) { Text("保存") }
+                        } else {
+                            TextButton(onClick = { editing = true }) { Text("编辑") }
+                        }
+                    }
                     TextButton(
                         onClick = {
                             val safe = TextFiles.safeFileName(skill.name)
-                            if (attachments.isEmpty()) {
-                                exportMdLauncher.launch("$safe.md")
-                            } else {
-                                exportZipLauncher.launch("$safe.zip")
-                            }
+                            if (attachments.isEmpty()) exportMdLauncher.launch("$safe.md")
+                            else exportZipLauncher.launch("$safe.zip")
                         },
-                    ) {
-                        Text("导出")
-                    }
+                    ) { Text("导出") }
+                } else if (editing) {
+                    TextButton(
+                        onClick = ::save,
+                        enabled = name.isNotBlank() && body.isNotBlank(),
+                    ) { Text("保存") }
                 }
             },
         )
@@ -349,6 +382,13 @@ private fun SkillEditorContent(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            } else if (!editing) {
+                Text(
+                    text = "技能处于只读状态。需要修改时点右上角「编辑」。",
+                    modifier = Modifier.padding(vertical = 10.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             OutlinedTextField(
                 value = name,
@@ -356,7 +396,7 @@ private fun SkillEditorContent(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("技能名称") },
                 singleLine = true,
-                readOnly = isBuiltIn,
+                readOnly = !canEdit,
             )
             OutlinedTextField(
                 value = description,
@@ -367,7 +407,7 @@ private fun SkillEditorContent(
                 label = { Text("一句话描述") },
                 placeholder = { Text("例如：生成更有画面感的场景描写") },
                 singleLine = true,
-                readOnly = isBuiltIn,
+                readOnly = !canEdit,
             )
             Row(
                 modifier = Modifier
@@ -393,9 +433,25 @@ private fun SkillEditorContent(
                     onCheckedChange = { checked ->
                         enabled = checked
                         if (isBuiltIn) skill?.let { viewModel.setEnabled(it.id, checked) }
+                        else if (!editing) skill?.let { viewModel.setEnabled(it.id, checked) }
                     },
                 )
             }
+            OutlinedTextField(
+                value = body,
+                onValueChange = { body = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(top = 10.dp),
+                label = { Text("技能正文（Markdown 提示词）") },
+                placeholder = { Text("写入希望 AI 遵循的写作规则或流程…") },
+                readOnly = !canEdit,
+                textStyle = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                ),
+                minLines = 8,
+            )
             if (attachments.isNotEmpty()) {
                 Column(
                     modifier = Modifier
@@ -404,7 +460,7 @@ private fun SkillEditorContent(
                 ) {
                     Text(
                         text = "附件（${attachments.size}）" +
-                            if (attachments.any { !it.editable }) " · assets 为输出资源，不提供编辑" else "",
+                            if (attachments.any { !it.editable }) " · assets 为输出资源" else "",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -427,42 +483,12 @@ private fun SkillEditorContent(
                     }
                 }
             }
-            OutlinedTextField(
-                value = body,
-                onValueChange = { body = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = 10.dp),
-                label = { Text("技能正文（Markdown 提示词）") },
-                placeholder = { Text("写入希望 AI 遵循的写作规则或流程…") },
-                readOnly = isBuiltIn,
-                textStyle = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                ),
-                minLines = 8,
-            )
-            if (!isBuiltIn) {
-                Button(
-                    onClick = {
-                        viewModel.saveSkill(skill?.id, name, description, body, enabled)
-                        Toast.makeText(context, "技能已保存", Toast.LENGTH_SHORT).show()
-                        onClose()
-                    },
-                    enabled = name.isNotBlank() && body.isNotBlank(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                ) {
-                    Text("保存技能")
-                }
-            }
-            if (skill != null && !isBuiltIn) {
+            if (!isBuiltIn && editing && skill != null) {
                 TextButton(
                     onClick = { showDelete = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp),
+                        .padding(vertical = 8.dp),
                 ) {
                     Text("删除技能", color = MaterialTheme.colorScheme.error)
                 }
@@ -495,11 +521,34 @@ private fun SkillEditorContent(
         )
     }
 
+    if (showDiscard) {
+        AlertDialog(
+            onDismissRequest = { showDiscard = false },
+            title = { Text("保存修改？") },
+            text = { Text("你有未保存的修改，离开前要先保存吗？") },
+            confirmButton = {
+                TextButton(onClick = { showDiscard = false; save() }) {
+                    Text("保存并退出")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showDiscard = false; editing = false }) {
+                        Text("继续编辑")
+                    }
+                    TextButton(
+                        onClick = { showDiscard = false; onClose() },
+                    ) { Text("不保存") }
+                }
+            },
+        )
+    }
+
     if (showDelete) {
         AlertDialog(
             onDismissRequest = { showDelete = false },
             title = { Text("删除技能") },
-            text = { Text("将删除「${skill?.name.orEmpty()}」所在的 SKILL.md 文件，无法撤销。") },
+            text = { Text("将删除「${skill?.name.orEmpty()}」所在的 SKILL.md 文件与附件，无法撤销。") },
             confirmButton = {
                 TextButton(
                     onClick = {

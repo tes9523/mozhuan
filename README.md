@@ -9,9 +9,9 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.9.5 | 技能详情默认只读 + 未保存退出提示｜附件块移到正文下方｜气泡长按气泡式菜单｜用户气泡内联编辑 + 取消按钮｜AI 气泡选中文本复制 + 添加到输入框 | [mozhuan-v0.9.5.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.5/mozhuan-v0.9.5.apk) |
 | v0.9.4 | 内置 skill-creator 换新并彻底只读｜技能附件导入与预览｜对话内思考强度切换｜@ 主动调用技能｜用户气泡复制 / 编辑 / 删除 | [mozhuan-v0.9.4.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.4/mozhuan-v0.9.4.apk) |
 | v0.9.3 | 输入法留白修复｜内置技能只读可导出｜技能按需加载｜逐模型思考强度｜连接测试修复｜Markdown 与消息长按操作 | [mozhuan-v0.9.3.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.3/mozhuan-v0.9.3.apk) |
-| v0.9.2 | 多会话｜内置 skill-creator｜zip 技能导入｜后台保活｜可用工具与记忆｜输入法内容跟随 | [mozhuan-v0.9.2.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.2/mozhuan-v0.9.2.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
 

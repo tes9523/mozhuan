@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -67,6 +69,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -75,8 +78,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Popup
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -99,6 +104,7 @@ fun AiChatScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val isStreaming by viewModel.isStreaming.collectAsStateWithLifecycle()
+    val lastUserMessageId = remember(messages) { messages.lastOrNull { it.role == ChatRole.USER }?.id }
     val error by viewModel.error.collectAsStateWithLifecycle()
     val displaySettings by viewModel.displaySettings.collectAsStateWithLifecycle()
     val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
@@ -112,9 +118,6 @@ fun AiChatScreen(
     val toolStatus by viewModel.toolStatus.collectAsStateWithLifecycle()
     val thinkingLevel by viewModel.thinkingLevel.collectAsStateWithLifecycle()
     val skills by viewModel.skills.collectAsStateWithLifecycle()
-    val lastUserMessageId = remember(messages) {
-        messages.lastOrNull { it.role == ChatRole.USER }?.id
-    }
     val currentGroup = activeGroup?.let { group ->
         groupOptions.firstOrNull { it.group.id == group.id }?.group
     }
@@ -130,6 +133,7 @@ fun AiChatScreen(
     var showThinkingSheet by remember { mutableStateOf(false) }
     var pendingDeleteSessionId by remember { mutableStateOf<String?>(null) }
     var messageActions by remember { mutableStateOf<ChatMessage?>(null) }
+    var messageActionAnchor by remember { mutableStateOf(IntOffset.Zero) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editDraft by remember { mutableStateOf("") }
     var pendingDeleteMessageId by remember { mutableStateOf<String?>(null) }
@@ -381,9 +385,13 @@ fun AiChatScreen(
                         canRegenerate = !isStreaming,
                         onCopy = { copyToClipboard(context, message.content) },
                         onRegenerate = { viewModel.regenerate(message.id) },
-                        onShowActions = {
+                        onAddToInput = {
+                            viewModel.onInputChange((input.ifBlank { "" } + "\n" + message.content).trim())
+                        },
+                        onShowActions = { offset ->
                             hideKeyboard()
                             messageActions = message
+                            messageActionAnchor = offset
                         },
                     )
                 }
@@ -465,6 +473,8 @@ fun AiChatScreen(
                     }
                 }
             }
+            val editMessage = editingMessage
+            val isEditingInline = editMessage != null
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -475,18 +485,36 @@ fun AiChatScreen(
                 value = input,
                 onValueChange = viewModel::onInputChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("和 AI 聊聊你的故事…") },
+                placeholder = { Text(if (isEditingInline) "修改中…发送以覆盖原消息" else "和 AI 聊聊你的故事…") },
                 minLines = 1,
                 maxLines = 6,
                 shape = RoundedCornerShape(22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedBorderColor = if (isEditingInline) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = if (isEditingInline) MaterialTheme.colorScheme.tertiaryContainer
+                        else MaterialTheme.colorScheme.outlineVariant,
                 ),
             )
             Spacer(Modifier.width(8.dp))
+            if (isEditingInline) {
+                FilledIconButton(
+                    onClick = {
+                        editingMessage = null
+                        viewModel.onInputChange("")
+                    },
+                    modifier = Modifier.size(44.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "取消修改")
+                }
+                Spacer(Modifier.width(8.dp))
+            }
             if (isStreaming) {
                 FilledIconButton(
                     onClick = viewModel::stop,
@@ -507,7 +535,15 @@ fun AiChatScreen(
                 }
             } else {
                 FilledIconButton(
-                    onClick = viewModel::send,
+                    onClick = {
+                        if (isEditingInline) {
+                            viewModel.editUserMessage(editMessage!!.id, input)
+                            editingMessage = null
+                            viewModel.onInputChange("")
+                        } else {
+                            viewModel.send()
+                        }
+                    },
                     enabled = input.isNotBlank(),
                     modifier = Modifier.size(44.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
@@ -790,107 +826,86 @@ fun AiChatScreen(
     }
 
     val actionMessage = messageActions
-    if (actionMessage != null) {
-        ModalBottomSheet(onDismissRequest = { messageActions = null }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 24.dp),
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (actionMessage != null) {
+            val isUserAction = actionMessage.role == ChatRole.USER
+            val offset = messageActionAnchor
+            val anchorAlignment = if (isUserAction) Alignment.BottomEnd else Alignment.BottomStart
+            val popupAlignment = if (isUserAction) Alignment.TopEnd else Alignment.TopStart
+            Popup(
+                alignment = anchorAlignment,
+                offset = IntOffset(offset.x, offset.y + 16),
+                onDismissRequest = { messageActions = null },
             ) {
-                Text(
-                    text = "消息操作",
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = actionMessage.content,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                MessageActionButton(
-                    text = "复制",
-                    onClick = {
-                        copyToClipboard(context, actionMessage.content)
-                        messageActions = null
-                    },
-                )
-                if (!isStreaming) {
-                    if (actionMessage.role == ChatRole.USER) {
-                        // 已发送的气泡只提供复制 / 编辑 / 删除；编辑仅限最新一条用户消息。
-                        if (actionMessage.id == lastUserMessageId) {
-                            MessageActionButton(
-                                text = "编辑",
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.widthIn(min = 160.dp, max = 260.dp),
+                ) {
+                    Column {
+                        MessageActionPopupItem(
+                            text = "复制",
+                            onClick = {
+                                copyToClipboard(context, actionMessage.content)
+                                messageActions = null
+                            },
+                        )
+                        if (!isUserAction) {
+                            MessageActionPopupItem(
+                                text = "添加到输入框",
                                 onClick = {
-                                    editingMessage = actionMessage
-                                    editDraft = actionMessage.content
+                                    viewModel.onInputChange((input.ifBlank { "" } + "\n" + actionMessage.content).trim())
                                     messageActions = null
                                 },
                             )
                         }
-                        MessageActionButton(
-                            text = "删除",
-                            destructive = true,
-                            onClick = {
-                                pendingDeleteMessageId = actionMessage.id
-                                messageActions = null
-                            },
-                        )
-                    } else {
-                        MessageActionButton(
-                            text = "重新生成",
-                            onClick = {
-                                viewModel.regenerate(actionMessage.id)
-                                messageActions = null
-                            },
-                        )
-                        MessageActionButton(
-                            text = "从此处删除",
-                            destructive = true,
-                            onClick = {
-                                pendingDeleteMessageId = actionMessage.id
-                                messageActions = null
-                            },
-                        )
+                        if (!isStreaming) {
+                            if (isUserAction) {
+                                if (actionMessage.id == lastUserMessageId) {
+                                    MessageActionPopupItem(
+                                        text = "编辑",
+                                        onClick = {
+                                            editingMessage = actionMessage
+                                            editDraft = actionMessage.content
+                                            messageActions = null
+                                            viewModel.onInputChange(actionMessage.content)
+                                        },
+                                    )
+                                }
+                                MessageActionPopupItem(
+                                    text = "删除",
+                                    destructive = true,
+                                    onClick = {
+                                        pendingDeleteMessageId = actionMessage.id
+                                        messageActions = null
+                                    },
+                                )
+                            } else {
+                                MessageActionPopupItem(
+                                    text = "重新生成",
+                                    onClick = {
+                                        viewModel.regenerate(actionMessage.id)
+                                        messageActions = null
+                                    },
+                                )
+                                MessageActionPopupItem(
+                                    text = "从此处删除",
+                                    destructive = true,
+                                    onClick = {
+                                        pendingDeleteMessageId = actionMessage.id
+                                        messageActions = null
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    val editMessage = editingMessage
-    if (editMessage != null) {
-        AlertDialog(
-            onDismissRequest = { editingMessage = null },
-            title = { Text("编辑消息") },
-            text = {
-                OutlinedTextField(
-                    value = editDraft,
-                    onValueChange = { editDraft = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    maxLines = 8,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = editDraft.isNotBlank(),
-                    onClick = {
-                        viewModel.editUserMessage(editMessage.id, editDraft)
-                        editingMessage = null
-                    },
-                ) {
-                    Text("保存并重发")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingMessage = null }) { Text("取消") }
-            },
-        )
-    }
 
     val deleteMessageId = pendingDeleteMessageId
     if (deleteMessageId != null) {
@@ -1041,8 +1056,9 @@ private fun MessageBubble(
     showTimestamp: Boolean,
     canRegenerate: Boolean,
     onCopy: () -> Unit,
+    onAddToInput: () -> Unit,
     onRegenerate: () -> Unit,
-    onShowActions: () -> Unit,
+    onShowActions: (IntOffset) -> Unit,
 ) {
     val isUser = message.role == ChatRole.USER
     var reasoningExpanded by remember(message.id) { mutableStateOf(false) }
@@ -1059,7 +1075,9 @@ private fun MessageBubble(
                 modifier = Modifier
                     .widthIn(max = 320.dp)
                     .pointerInput(message.id) {
-                        detectTapGestures(onLongPress = { onShowActions() })
+                        detectTapGestures(onLongPress = { offset ->
+                            onShowActions(IntOffset(offset.x.toInt(), offset.y.toInt()))
+                        })
                     },
             ) {
                 Text(
@@ -1128,14 +1146,16 @@ private fun MessageBubble(
                     }
                 }
             } else {
-                // 助手正文不使用气泡，支持常见 Markdown 与链接；长按打开消息操作。
-                MarkdownText(
-                    markdown = message.content,
-                    onLongClick = onShowActions,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
-                )
+                // 助手正文支持选中文本原生复制（SelectionContainer 会把长按交给 Android 原生选择模式）；
+                // 整消息操作由底部快捷按钮和「···更多」触发。
+                SelectionContainer {
+                    MarkdownText(
+                        markdown = message.content,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
+                    )
+                }
             }
         }
 
@@ -1156,6 +1176,12 @@ private fun MessageBubble(
                 ) {
                     Text("复制", style = MaterialTheme.typography.labelSmall)
                 }
+                TextButton(
+                    onClick = onAddToInput,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("添加到输入框", style = MaterialTheme.typography.labelSmall)
+                }
                 if (canRegenerate) {
                     TextButton(
                         onClick = onRegenerate,
@@ -1163,6 +1189,12 @@ private fun MessageBubble(
                     ) {
                         Text("重新生成", style = MaterialTheme.typography.labelSmall)
                     }
+                }
+                TextButton(
+                    onClick = { onShowActions(IntOffset.Zero) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("···更多", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -1172,7 +1204,6 @@ private fun MessageBubble(
 @Composable
 private fun MarkdownText(
     markdown: String,
-    onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -1191,17 +1222,13 @@ private fun MarkdownText(
         update = { textView ->
             textView.setTextColor(textColor)
             textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize)
-            textView.setOnLongClickListener {
-                onLongClick()
-                true
-            }
             markwon.setMarkdown(textView, markdown)
         },
     )
 }
 
 @Composable
-private fun MessageActionButton(
+private fun MessageActionPopupItem(
     text: String,
     destructive: Boolean = false,
     onClick: () -> Unit,
@@ -1209,12 +1236,13 @@ private fun MessageActionButton(
     TextButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(
             text = text,
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Start,
+            style = MaterialTheme.typography.bodyMedium,
             color = if (destructive) {
                 MaterialTheme.colorScheme.error
             } else {

@@ -20,8 +20,8 @@ android {
         applicationId = "com.mozhuan"
         minSdk = 33
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.9.4"
+        versionCode = 13
+        versionName = "0.9.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
