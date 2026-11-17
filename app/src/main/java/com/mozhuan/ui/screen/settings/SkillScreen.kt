@@ -198,6 +198,15 @@ fun SkillScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                text = "已开启 ${skills.count { it.enabled }} / 共 ${skills.size}",
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            val builtIn = skills.filter { it.isBuiltIn }
+            val custom = skills.filterNot { it.isBuiltIn }
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 if (skills.isEmpty()) {
@@ -210,17 +219,37 @@ fun SkillScreen(
                         )
                     }
                 } else {
-                    item {
-                        SettingsGroup(
-                            footer = "内置 skill-creator 只可查看、启停和导出；其他技能点进详情后可编辑。",
-                        ) {
-                            skills.forEachIndexed { index, skill ->
-                                SkillRow(
-                                    skill = skill,
-                                    onOpen = { viewingSkill = skill },
-                                    onEnabledChange = { viewModel.setEnabled(skill.id, it) },
-                                )
-                                if (index != skills.lastIndex) SettingsDivider()
+                    if (builtIn.isNotEmpty()) {
+                        item { SkillSectionHeader(title = "内置", count = builtIn.size) }
+                        item {
+                            SettingsGroup(
+                                footer = "内置技能随应用提供并固定置顶，只可查看、启停和导出。",
+                            ) {
+                                builtIn.forEachIndexed { index, skill ->
+                                    SkillRow(
+                                        skill = skill,
+                                        onOpen = { viewingSkill = skill },
+                                        onEnabledChange = { viewModel.setEnabled(skill.id, it) },
+                                    )
+                                    if (index != builtIn.lastIndex) SettingsDivider()
+                                }
+                            }
+                        }
+                    }
+                    if (custom.isNotEmpty()) {
+                        item { SkillSectionHeader(title = "自定义", count = custom.size) }
+                        item {
+                            SettingsGroup(
+                                footer = "点进详情可查看 Skill 内容并编辑正文与引用文件。",
+                            ) {
+                                custom.forEachIndexed { index, skill ->
+                                    SkillRow(
+                                        skill = skill,
+                                        onOpen = { viewingSkill = skill },
+                                        onEnabledChange = { viewModel.setEnabled(skill.id, it) },
+                                    )
+                                    if (index != custom.lastIndex) SettingsDivider()
+                                }
                             }
                         }
                     }
@@ -228,6 +257,17 @@ fun SkillScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SkillSectionHeader(title: String, count: Int) {
+    Text(
+        text = "$title · $count",
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 6.dp),
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

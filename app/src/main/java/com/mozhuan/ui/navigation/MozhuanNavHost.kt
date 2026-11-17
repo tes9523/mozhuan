@@ -12,7 +12,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.mozhuan.AppContainer
-import com.mozhuan.ui.screen.books.BookPlaceholderScreen
+import com.mozhuan.ui.screen.books.BooksScreen
+import com.mozhuan.ui.screen.books.BooksViewModel
 import com.mozhuan.ui.screen.chat.AiChatScreen
 import com.mozhuan.ui.screen.chat.AiChatViewModel
 import com.mozhuan.ui.screen.settings.BackgroundSettingsScreen
@@ -87,7 +88,15 @@ fun MozhuanNavHost(
         }
 
         composable(Routes.BOOKS) {
-            BookPlaceholderScreen()
+            val booksViewModel: BooksViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { BooksViewModel(container.booksRepository) }
+                },
+            )
+            BooksScreen(
+                viewModel = booksViewModel,
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(Routes.SETTINGS) {

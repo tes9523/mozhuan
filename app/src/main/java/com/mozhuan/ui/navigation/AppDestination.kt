@@ -14,7 +14,7 @@ object Routes {
     /** Tab1：AI 对话。 */
     const val CHAT = "chat"
 
-    /** Tab2：书稿（纯占位）。 */
+    /** Tab2：书稿。 */
     const val BOOKS = "books"
 
     /** Tab3：设置。 */
@@ -83,6 +83,6 @@ enum class TopLevelDestination(
     val icon: ImageVector,
 ) {
     CHAT(Routes.CHAT, Routes.CHAT, "AI对话", Icons.Filled.Email),
-    BOOKS(Routes.BOOKS, Routes.BOOKS, "书稿", Icons.AutoMirrored.Filled.List),
+    BOOKS(Routes.BOOKS, Routes.BOOKS, "小说", Icons.AutoMirrored.Filled.List),
     SETTINGS(Routes.SETTINGS, Routes.SETTINGS, "设置", Icons.Filled.Settings),
 }

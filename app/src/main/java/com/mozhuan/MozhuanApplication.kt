@@ -3,6 +3,7 @@ package com.mozhuan
 import android.app.Application
 import android.content.Context
 import com.mozhuan.data.repository.BackupRepository
+import com.mozhuan.data.repository.BooksRepository
 import com.mozhuan.data.repository.MemoryRepository
 import com.mozhuan.data.repository.ProviderRepository
 import com.mozhuan.data.repository.SessionRepository
@@ -29,6 +30,8 @@ class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(preferences)
 
     val skillRepository = SkillRepository(applicationContext, preferences)
+
+    val booksRepository = BooksRepository(applicationContext)
 
     val tokenUsageRepository = TokenUsageRepository(preferences)
 

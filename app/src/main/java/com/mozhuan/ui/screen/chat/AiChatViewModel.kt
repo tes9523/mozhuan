@@ -571,6 +571,15 @@ class AiChatViewModel(
             if (isNotEmpty()) append("\n\n")
             append(memory)
         }
+        if (settingsRepository.toolSettings.value.writeFiles) {
+            if (isNotEmpty()) append("\n\n")
+            append("# 书稿目录约定\n")
+            append("每本小说位于 book/<书名>/ 下：正文写入「章节内容/」，")
+            append("例如 book/书名/章节内容/第01章 标题.md；")
+            append("世界观写入 book/书名/小说资料/设定/世界观/，人物写入 book/书名/小说资料/设定/人物库/，")
+            append("大纲写入 book/书名/小说资料/大纲/，章节摘要写入 book/书名/小说资料/章节摘要/。")
+            append("写入任一文件即可在书稿页看到整本小说，缺失的目录会自动补齐。")
+        }
     }
 
     /** 从当前待发送的用户消息中解析 @技能名 / @技能 id。 */
