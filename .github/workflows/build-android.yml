@@ -2,15 +2,29 @@ name: Build Signed Release APK
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version_code: ${{ steps.version.outputs.code }}
+      version_name: ${{ steps.version.outputs.name }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # ✅ 修复版解码：printf 不会自动加换行，不会弄坏p12密钥
+      - name: Extract version from build.gradle.kts
+        id: version
+        run: |
+          VERSION_CODE=$(grep -E '^\s*versionCode\s*=' app/build.gradle.kts | tail -1 | sed 's/.*=\s*//')
+          VERSION_NAME=$(grep -E '^\s*versionName\s*=' app/build.gradle.kts | tail -1 | sed 's/.*=\s*"\(.*\)".*/\1/')
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$VERSION_CODE versionName=$VERSION_NAME"
+
       - name: Decode keystore base64 to app/keystore.jks
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -18,7 +32,6 @@ jobs:
           printf "%s" "$KEYSTORE_BASE64" | base64 -d > app/keystore.jks
           ls -l app/keystore.jks
 
-      # 🧪 调试步骤：先验证密钥能不能正常读取（关键！）
       - name: Debug verify keystore
         env:
           STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -38,8 +51,54 @@ jobs:
           KEYSTORE_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Upload APK
+      - name: Rename APK to release name
+        run: |
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          NEW_NAME="mozhuan-v${{ steps.version.outputs.name }}.apk"
+          cp "$APK_PATH" "$NEW_NAME"
+          ls -lh "$NEW_NAME"
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$NEW_NAME" >> "$GITHUB_OUTPUT"
+        id: apk
+
+      - name: Upload APK as build artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: ${{ steps.apk.outputs.apk_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source (for git tag)
+        uses: actions/checkout@v4
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-apk
+
+      - name: Create git tag if missing
+        run: |
+          TAG="v${{ needs.build.outputs.version_name }}"
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping tag creation."
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version_name }}
+          name: Mozhuan v${{ needs.build.outputs.version_name }}
+          body: |
+            **墨撰 Mozhuan v${{ needs.build.outputs.version_name }}** · versionCode ${{ needs.build.outputs.version_code }}
+
+            签名 release APK，直接安装覆盖旧版本。详见 [Releases](https://github.com/tes9523/mozhuan/releases)。
+          files: mozuan-v${{ needs.build.outputs.version_name }}.apk
+          fail_on_unmatched_files: false
