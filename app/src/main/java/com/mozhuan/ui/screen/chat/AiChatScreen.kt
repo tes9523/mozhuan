@@ -129,7 +129,13 @@ fun AiChatScreen(
 
     val listState = rememberLazyListState()
     val atTop by remember { derivedStateOf { !listState.canScrollBackward } }
-    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    // 让一键到底按钮真正把最后一条消息滚到视口底部。
+    val atBottom by remember {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ==
+                listState.layoutInfo.totalItemsCount - 1 && !listState.canScrollForward
+        }
+    }
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -422,7 +428,14 @@ fun AiChatScreen(
                     }
                     if (!atBottom) {
                         ScrollToButton(up = false) {
-                            scope.launch { listState.animateScrollToItem(messages.lastIndex) }
+                            scope.launch {
+                                // scrollOffset 传视口高度的负值，把最后一条推到视口底部。
+                                val viewportH = listState.layoutInfo.viewportSize.height
+                                listState.animateScrollToItem(
+                                    index = messages.lastIndex,
+                                    scrollOffset = -viewportH,
+                                )
+                            }
                         }
                     }
                 }

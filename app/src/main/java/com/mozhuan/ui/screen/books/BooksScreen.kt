@@ -1,9 +1,12 @@
 package com.mozhuan.ui.screen.books
 
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.R
 import com.mozhuan.data.model.Novel
 import com.mozhuan.data.model.NovelEntry
+import com.mozhuan.data.model.TrashedNovel
 import com.mozhuan.system.file.TextFiles
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -70,7 +76,7 @@ import java.util.Locale
 
 /**
  * 书稿：小说列表 → 作品目录（小说资料 / 章节内容）→ 子目录 → 正文编辑。
- * 小说目录由 AI 通过 book/ 写入或本页创建 / 导入，进入时自动补齐标准目录。
+ * 删除先进回收站，回收站二次删除才彻底清除。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,12 +85,18 @@ fun BooksScreen(
     onBack: () -> Unit,
 ) {
     val books by viewModel.books.collectAsStateWithLifecycle()
+    val trash by viewModel.trash.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var openBookId by remember { mutableStateOf<String?>(null) }
     var path by remember { mutableStateOf<List<String>>(emptyList()) }
     var openFilePath by remember { mutableStateOf<String?>(null) }
     var showCreate by remember { mutableStateOf(false) }
+    var inTrashView by remember { mutableStateOf(false) }
+    var pendingDeleteBookId by remember { mutableStateOf<String?>(null) }
+    var pendingPurgeTrashId by remember { mutableStateOf<String?>(null) }
+    var showEmptyTrashConfirm by remember { mutableStateOf(false) }
+    var coverDialogForBook by remember { mutableStateOf<String?>(null) }
 
     val openBook = books.firstOrNull { it.id == openBookId }
 
@@ -102,9 +114,8 @@ fun BooksScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val fileName = TextFiles.displayName(context, uri)
-        val bytes = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull()
+        val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
+            .getOrNull()
         if (bytes == null) {
             Toast.makeText(context, "读取失败：无法打开所选文件", Toast.LENGTH_SHORT).show()
             return@rememberLauncherForActivityResult
@@ -119,90 +130,132 @@ fun BooksScreen(
                 openBookId = novel.id
                 path = emptyList()
             }
-            .onFailure {
-                Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
-            }
+            .onFailure { Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show() }
     }
 
-    // 目录逐级返回；打开正文时由编辑器自己处理未保存提示。
-    BackHandler(
-        enabled = openFilePath == null && (path.isNotEmpty() || openBookId != null),
-    ) {
+    val coverLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        val bookId = coverDialogForBook
+        coverDialogForBook = null
+        if (uri == null || bookId == null) return@rememberLauncherForActivityResult
+        viewModel.setCoverFromGallery(bookId, uri)
+            ?.let { Toast.makeText(context, "封面已更新", Toast.LENGTH_SHORT).show() }
+            ?: Toast.makeText(context, "封面上传失败", Toast.LENGTH_SHORT).show()
+    }
+
+    // 内部逐级返回。
+    BackHandler(enabled = openFilePath == null && (path.isNotEmpty() || openBookId != null || inTrashView)) {
         when {
+            openFilePath != null -> {} // 由编辑器自己处理
             path.isNotEmpty() -> path = path.dropLast(1)
-            else -> {
-                openBookId = null
-                path = emptyList()
-            }
+            openBookId != null -> { openBookId = null; path = emptyList() }
+            inTrashView -> inTrashView = false
         }
     }
 
     val filePath = openFilePath
     when {
-        openBook != null && filePath != null -> {
-            BookFileEditor(
-                book = openBook,
-                relativePath = filePath,
-                viewModel = viewModel,
-                onClose = { openFilePath = null },
-            )
-        }
-
-        openBook != null -> {
-            BookFolderContent(
-                book = openBook,
-                path = path,
-                viewModel = viewModel,
-                onBack = {
-                    when {
-                        path.isNotEmpty() -> path = path.dropLast(1)
-                        else -> {
-                            openBookId = null
-                            path = emptyList()
-                        }
-                    }
-                },
-                onOpenFolder = { name -> path = path + name },
-                onOpenFile = { openFilePath = it },
-            )
-        }
-
-        else -> {
-            BookListContent(
-                books = books,
-                onOpen = {
-                    openBookId = it.id
-                    path = emptyList()
-                },
-                onCreate = { showCreate = true },
-                onImport = {
-                    importLauncher.launch(
-                        arrayOf(
-                            "text/plain",
-                            "text/markdown",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            "application/octet-stream",
-                            "*/*",
-                        ),
-                    )
-                },
-                onBack = onBack,
-            )
-        }
-    }
-
-    if (showCreate) {
-        CreateBookDialog(
-            onDismiss = { showCreate = false },
-            onCreate = { title, cover ->
-                val novel = viewModel.createBook(title, cover)
-                showCreate = false
-                openBookId = novel.id
-                path = emptyList()
-                Toast.makeText(context, "已创建《${novel.title}》", Toast.LENGTH_SHORT).show()
+        openBook != null && filePath != null -> BookFileEditor(
+            book = openBook,
+            relativePath = filePath,
+            viewModel = viewModel,
+            onClose = { openFilePath = null },
+        )
+        openBook != null -> BookFolderContent(
+            book = openBook,
+            path = path,
+            viewModel = viewModel,
+            onChangeCover = { coverDialogForBook = openBook.id },
+            onBack = {
+                when {
+                    path.isNotEmpty() -> path = path.dropLast(1)
+                    else -> { openBookId = null; path = emptyList() }
+                }
             },
+            onOpenFolder = { path = path + it },
+            onOpenFile = { openFilePath = it },
+        )
+        inTrashView -> TrashContent(
+            trash = trash,
+            onRestore = { viewModel.restoreFromTrash(it) },
+            onDelete = { pendingPurgeTrashId = it },
+            onEmptyAll = { showEmptyTrashConfirm = true },
+            onBack = { inTrashView = false },
+        )
+        else -> BookListContent(
+            books = books,
+            trashCount = trash.size,
+            onOpen = { openBookId = it.id; path = emptyList() },
+            onCreate = { showCreate = true },
+            onImport = {
+                importLauncher.launch(
+                    arrayOf("text/plain", "text/markdown", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/octet-stream", "*/*"),
+                )
+            },
+            onChangeCover = { coverDialogForBook = it.id },
+            onDelete = { pendingDeleteBookId = it.id },
+            onOpenTrash = { inTrashView = true },
+            onBack = onBack,
         )
     }
+
+    if (showCreate) CreateBookDialog(
+        onDismiss = { showCreate = false },
+        onCreate = { title, cover ->
+            val novel = viewModel.createBook(title, cover)
+            showCreate = false
+            openBookId = novel.id; path = emptyList()
+            Toast.makeText(context, "已创建《${novel.title}》", Toast.LENGTH_SHORT).show()
+        },
+    )
+
+    coverDialogForBook?.let { bookId ->
+        val book = books.firstOrNull { it.id == bookId } ?: run { coverDialogForBook = null; return@let }
+        ChangeCoverDialog(
+            book = book,
+            viewModel = viewModel,
+            onPickFromGallery = { coverLauncher.launch("image/*") },
+            onPickBuiltIn = { index -> viewModel.setBuiltInCover(bookId, index); coverDialogForBook = null },
+            onDismiss = { coverDialogForBook = null },
+        )
+    }
+
+    pendingDeleteBookId?.let { id ->
+        val book = books.firstOrNull { it.id == id }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteBookId = null },
+            title = { Text("删除《${book?.title.orEmpty()}》？") },
+            text = { Text("删除后会进入回收站，30 天内可恢复；回收站再次删除才会彻底清除。") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.moveToTrash(id); pendingDeleteBookId = null; Toast.makeText(context, "已移入回收站", Toast.LENGTH_SHORT).show() }) { Text("移入回收站") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDeleteBookId = null }) { Text("取消") } },
+        )
+    }
+
+    pendingPurgeTrashId?.let { id ->
+        val item = trash.firstOrNull { it.id == id }
+        AlertDialog(
+            onDismissRequest = { pendingPurgeTrashId = null },
+            title = { Text("彻底删除《${item?.title.orEmpty()}》？") },
+            text = { Text("该作品文件将被永久删除，无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = { viewModel.purgeTrash(id); pendingPurgeTrashId = null }) { Text("彻底删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingPurgeTrashId = null }) { Text("取消") } },
+        )
+    }
+
+    if (showEmptyTrashConfirm) AlertDialog(
+        onDismissRequest = { showEmptyTrashConfirm = false },
+        title = { Text("清空回收站？") },
+        text = { Text("回收站中所有作品将被彻底删除，无法恢复。") },
+        confirmButton = {
+            TextButton(onClick = { viewModel.purgeAllTrash(); showEmptyTrashConfirm = false }) { Text("全部彻底删除") }
+        },
+        dismissButton = { TextButton(onClick = { showEmptyTrashConfirm = false }) { Text("取消") } },
+    )
 }
 
 // ── 小说列表（图 2） ─────────────────────────────────────────────
@@ -211,9 +264,13 @@ fun BooksScreen(
 @Composable
 private fun BookListContent(
     books: List<Novel>,
+    trashCount: Int,
     onOpen: (Novel) -> Unit,
     onCreate: () -> Unit,
     onImport: () -> Unit,
+    onChangeCover: (Novel) -> Unit,
+    onDelete: (Novel) -> Unit,
+    onOpenTrash: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -222,7 +279,7 @@ private fun BookListContent(
                 Column {
                     Text("我的小说", style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = "共 ${books.size} 本作品",
+                        text = "共 ${books.size} 本作品${if (trashCount > 0) " · 回收站 $trashCount" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -234,6 +291,9 @@ private fun BookListContent(
                 }
             },
             actions = {
+                if (trashCount > 0) IconButton(onClick = onOpenTrash) {
+                    Icon(Icons.Filled.Delete, contentDescription = "回收站")
+                }
                 TextButton(onClick = onImport) { Text("导入") }
                 IconButton(onClick = onCreate) {
                     Icon(Icons.Filled.Add, contentDescription = "创建小说")
@@ -250,7 +310,12 @@ private fun BookListContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(books, key = { it.id }) { novel ->
-                    BookRow(novel = novel, onClick = { onOpen(novel) })
+                    BookRow(
+                        novel = novel,
+                        onClick = { onOpen(novel) },
+                        onChangeCover = { onChangeCover(novel) },
+                        onDelete = { onDelete(novel) },
+                    )
                 }
             }
         }
@@ -297,7 +362,12 @@ private fun EmptyBooks(
 }
 
 @Composable
-private fun BookRow(novel: Novel, onClick: () -> Unit) {
+private fun BookRow(
+    novel: Novel,
+    onClick: () -> Unit,
+    onChangeCover: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -311,16 +381,11 @@ private fun BookRow(novel: Novel, onClick: () -> Unit) {
         ) {
             BookCover(
                 coverIndex = novel.coverIndex,
+                customCoverPath = novel.customCover,
                 title = novel.title,
-                modifier = Modifier
-                    .width(52.dp)
-                    .height(72.dp),
+                modifier = Modifier.width(52.dp).height(72.dp),
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 14.dp),
-            ) {
+            Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
                 Text(
                     text = novel.title,
                     style = MaterialTheme.typography.titleSmall,
@@ -335,12 +400,22 @@ private fun BookRow(novel: Novel, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(
-                painter = painterResource(R.drawable.ic_folder),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            IconButton(onClick = onChangeCover) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_file),
+                    contentDescription = "更换封面",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "删除",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -353,14 +428,13 @@ private fun BookFolderContent(
     book: Novel,
     path: List<String>,
     viewModel: BooksViewModel,
+    onChangeCover: () -> Unit,
     onBack: () -> Unit,
     onOpenFolder: (String) -> Unit,
     onOpenFile: (String) -> Unit,
 ) {
     val relativePath = path.joinToString("/")
-    val entries = remember(book.id, relativePath) {
-        viewModel.entries(book.id, relativePath)
-    }
+    val entries = remember(book.id, relativePath) { viewModel.entries(book.id, relativePath) }
     val title = path.lastOrNull() ?: book.title
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -368,21 +442,22 @@ private fun BookFolderContent(
             title = {
                 Column {
                     Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (path.isNotEmpty()) {
-                        Text(
-                            text = path.joinToString(" / "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    if (path.isNotEmpty()) Text(
+                        text = path.joinToString(" / "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
+            },
+            actions = {
+                if (path.isEmpty()) TextButton(onClick = onChangeCover) { Text("更换封面") }
             },
         )
 
@@ -391,56 +466,39 @@ private fun BookFolderContent(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (path.isEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        BookCover(
-                            coverIndex = book.coverIndex,
-                            title = book.title,
-                            modifier = Modifier
-                                .width(64.dp)
-                                .height(88.dp),
+            if (path.isEmpty()) item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BookCover(
+                        coverIndex = book.coverIndex,
+                        customCoverPath = book.customCover,
+                        title = book.title,
+                        modifier = Modifier.width(64.dp).height(88.dp),
+                    )
+                    Column(modifier = Modifier.padding(start = 14.dp)) {
+                        Text(book.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = "章节内容放正文；小说资料放设定、大纲与章节摘要。",
+                            modifier = Modifier.padding(top = 6.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Column(modifier = Modifier.padding(start = 14.dp)) {
-                            Text(
-                                text = book.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "章节内容放正文；小说资料放设定、大纲与章节摘要。",
-                                modifier = Modifier.padding(top = 6.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
                 }
             }
 
-            if (entries.isEmpty()) {
-                item {
-                    Text(
-                        text = "此目录为空。",
-                        modifier = Modifier.padding(vertical = 24.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                items(entries, key = { it.path }) { entry ->
-                    EntryRow(
-                        entry = entry,
-                        onClick = {
-                            if (entry.isDirectory) onOpenFolder(entry.name)
-                            else onOpenFile(entry.path)
-                        },
-                    )
+            if (entries.isEmpty()) item {
+                Text(
+                    text = "此目录为空。",
+                    modifier = Modifier.padding(vertical = 24.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else items(entries, key = { it.path }) { entry ->
+                EntryRow(entry = entry) {
+                    if (entry.isDirectory) onOpenFolder(entry.name) else onOpenFile(entry.path)
                 }
             }
         }
@@ -450,9 +508,7 @@ private fun BookFolderContent(
 @Composable
 private fun EntryRow(entry: NovelEntry, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
     ) {
@@ -461,35 +517,22 @@ private fun EntryRow(entry: NovelEntry, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                painter = painterResource(
-                    if (entry.isDirectory) R.drawable.ic_folder else R.drawable.ic_file,
-                ),
+                painter = painterResource(if (entry.isDirectory) R.drawable.ic_folder else R.drawable.ic_file),
                 contentDescription = null,
-                tint = if (entry.isDirectory) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(22.dp),
             )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 12.dp),
-            ) {
-                Text(
-                    text = entry.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(entry.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!entry.isDirectory) Text(
+                    text = buildString {
+                        append(formatSize(entry.size))
+                        if (entry.wordCount > 0) append(" · ${formatWordCount(entry.wordCount)}")
+                        append(" · ").append(formatTime(entry.updatedAt))
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (!entry.isDirectory) {
-                    Text(
-                        text = "${formatSize(entry.size)} · ${formatTime(entry.updatedAt)}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
@@ -746,26 +789,175 @@ private fun CreateBookDialog(
 @Composable
 private fun BookCover(
     coverIndex: Int,
+    customCoverPath: String? = null,
     title: String,
     modifier: Modifier = Modifier,
 ) {
-    val colors = COVER_GRADIENTS[coverIndex.coerceIn(0, COVER_GRADIENTS.lastIndex)]
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Brush.linearGradient(colors))
-            .padding(6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = title,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
+    val context = LocalContext.current
+    val bitmap = remember(customCoverPath) {
+        customCoverPath?.let { rel ->
+            val f = java.io.File(context.filesDir, "book/$rel")
+            if (f.isFile) BitmapFactory.decodeFile(f.absolutePath) else null
+        }
+    }
+    when {
+        bitmap != null -> Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier.clip(RoundedCornerShape(8.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
         )
+        else -> {
+            val colors = COVER_GRADIENTS[coverIndex.coerceIn(0, COVER_GRADIENTS.lastIndex)]
+            Box(
+                modifier = modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Brush.linearGradient(colors))
+                    .padding(6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TrashContent(
+    trash: List<TrashedNovel>,
+    onRestore: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onEmptyAll: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("回收站") },
+            navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+            },
+            actions = {
+                if (trash.isNotEmpty()) TextButton(onClick = onEmptyAll) { Text("清空") }
+            },
+        )
+        if (trash.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("回收站为空", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(trash, key = { it.id }) { item ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = buildString {
+                                    append(formatSize(item.totalBytes))
+                                    append(" · 删除于 ").append(formatTime(item.trashedAt))
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { onRestore(item.id) }) { Text("恢复") }
+                        IconButton(onClick = { onDelete(item.id) }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "彻底删除", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChangeCoverDialog(
+    book: Novel,
+    viewModel: BooksViewModel,
+    onPickFromGallery: () -> Unit,
+    onPickBuiltIn: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selected by remember { mutableStateOf(book.coverIndex) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()).padding(20.dp),
+            ) {
+                Text(
+                    text = "更换封面",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "相册图片",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Button(
+                    onClick = onPickFromGallery,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("从相册选择图片") }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "内置封面",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(COVER_GRADIENTS.indices.toList()) { index ->
+                        Surface(
+                            modifier = Modifier
+                                .width(60.dp)
+                                .height(82.dp)
+                                .clickable { selected = index },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                if (index == selected) 2.dp else 1.dp,
+                                if (index == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize().background(Brush.linearGradient(COVER_GRADIENTS[index])),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("书", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("取消") }
+                    TextButton(onClick = { onPickBuiltIn(selected) }) { Text("应用内置封面") }
+                }
+            }
+        }
     }
 }
 
@@ -776,6 +968,11 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> String.format(Locale.getDefault(), "%.1f MB", bytes / 1024f / 1024f)
+}
+
+private fun formatWordCount(count: Int): String = when {
+    count >= 10_000 -> String.format(Locale.getDefault(), "%.1f 字", count / 10_000f)
+    else -> "$count 字"
 }
 
 private val COVER_GRADIENTS = listOf(
