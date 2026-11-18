@@ -7,6 +7,7 @@ import android.util.TypedValue
 import android.widget.TextView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -429,12 +430,10 @@ fun AiChatScreen(
                     if (!atBottom) {
                         ScrollToButton(up = false) {
                             scope.launch {
-                                // scrollOffset 传视口高度的负值，把最后一条推到视口底部。
-                                val viewportH = listState.layoutInfo.viewportSize.height
-                                listState.animateScrollToItem(
-                                    index = messages.lastIndex,
-                                    scrollOffset = -viewportH,
-                                )
+                                if (messages.isEmpty()) return@launch
+                                // 先定位到最后一条，再滚动到列表真实末尾（最后一条可能比屏幕高）。
+                                listState.animateScrollToItem(messages.lastIndex)
+                                listState.animateScrollBy(BOTTOM_SCROLL_BY)
                             }
                         }
                     }
@@ -1093,6 +1092,9 @@ private fun formatSessionTime(timestamp: Long): String {
     val pattern = if (sameDay) "HH:mm" else "MM-dd HH:mm"
     return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp))
 }
+
+/** 一次滚动足够大的距离，让列表到达真实末尾（LazyList 会自动夹取）。 */
+private const val BOTTOM_SCROLL_BY = 100_000f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

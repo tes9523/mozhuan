@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.mozhuan.data.model.Novel
 import com.mozhuan.data.model.NovelEntry
 import com.mozhuan.data.model.TrashedNovel
+import com.mozhuan.data.repository.BookDeleteResult
 import com.mozhuan.data.repository.BooksRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BooksViewModel(
     private val repository: BooksRepository,
@@ -43,9 +46,15 @@ class BooksViewModel(
     fun writeFile(bookId: String, relativePath: String, content: String): Boolean =
         repository.writeFile(bookId, relativePath, content)
 
-    fun importBook(fileName: String, bytes: ByteArray): Result<Novel> = repository.importBook(fileName, bytes)
+    /** 导入在 IO 线程执行，避免大文件卡住界面。 */
+    fun importBook(fileName: String, bytes: ByteArray, onResult: (Result<Novel>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.importBook(fileName, bytes) }
+            onResult(result)
+        }
+    }
 
-    fun moveToTrash(bookId: String): Boolean = repository.moveToTrash(bookId)
+    fun deleteBook(bookId: String): BookDeleteResult = repository.deleteBook(bookId)
 
     fun restoreFromTrash(trashId: String): Boolean = repository.restoreFromTrash(trashId)
 
@@ -55,7 +64,8 @@ class BooksViewModel(
         repository.purgeAllTrash()
     }
 
-    fun setCoverFromGallery(bookId: String, uri: Uri): String? = repository.setCoverFromGallery(bookId, uri)
+    fun setCoverFromGallery(bookId: String, uri: Uri): Result<String> =
+        repository.setCoverFromGallery(bookId, uri)
 
     fun setBuiltInCover(bookId: String, coverIndex: Int) = repository.setBuiltInCover(bookId, coverIndex)
 

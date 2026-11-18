@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -50,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +71,11 @@ import com.mozhuan.R
 import com.mozhuan.data.model.Novel
 import com.mozhuan.data.model.NovelEntry
 import com.mozhuan.data.model.TrashedNovel
+import com.mozhuan.data.repository.BookDeleteResult
 import com.mozhuan.system.file.TextFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -87,6 +93,7 @@ fun BooksScreen(
     val books by viewModel.books.collectAsStateWithLifecycle()
     val trash by viewModel.trash.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var openBookId by remember { mutableStateOf<String?>(null) }
     var path by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -114,23 +121,31 @@ fun BooksScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val fileName = TextFiles.displayName(context, uri)
-        val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
-            .getOrNull()
-        if (bytes == null) {
-            Toast.makeText(context, "读取失败：无法打开所选文件", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
-        }
-        viewModel.importBook(fileName, bytes)
-            .onSuccess { novel ->
-                Toast.makeText(
-                    context,
-                    "已导入《${novel.title}》，共 ${novel.chapterCount} 章",
-                    Toast.LENGTH_SHORT,
-                ).show()
-                openBookId = novel.id
-                path = emptyList()
+        Toast.makeText(context, "正在导入…", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }.getOrNull()
             }
-            .onFailure { Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show() }
+            if (bytes == null) {
+                Toast.makeText(context, "读取失败：无法打开所选文件", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            viewModel.importBook(fileName, bytes) { result ->
+                result.onSuccess { novel ->
+                    Toast.makeText(
+                        context,
+                        "已导入《${novel.title}》，共 ${novel.chapterCount} 章",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    openBookId = novel.id
+                    path = emptyList()
+                }.onFailure {
+                    Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 
     val coverLauncher = rememberLauncherForActivityResult(
@@ -139,9 +154,13 @@ fun BooksScreen(
         val bookId = coverDialogForBook
         coverDialogForBook = null
         if (uri == null || bookId == null) return@rememberLauncherForActivityResult
-        viewModel.setCoverFromGallery(bookId, uri)
-            ?.let { Toast.makeText(context, "封面已更新", Toast.LENGTH_SHORT).show() }
-            ?: Toast.makeText(context, "封面上传失败", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            viewModel.setCoverFromGallery(bookId, uri)
+                .onSuccess { Toast.makeText(context, "封面已更新", Toast.LENGTH_SHORT).show() }
+                .onFailure {
+                    Toast.makeText(context, "封面更新失败：${it.message}", Toast.LENGTH_LONG).show()
+                }
+        }
     }
 
     // 内部逐级返回。
@@ -226,9 +245,24 @@ fun BooksScreen(
         AlertDialog(
             onDismissRequest = { pendingDeleteBookId = null },
             title = { Text("删除《${book?.title.orEmpty()}》？") },
-            text = { Text("删除后会进入回收站，30 天内可恢复；回收站再次删除才会彻底清除。") },
+            text = {
+                Text(
+                    "仅导入正文、尚未生成「小说资料」的作品会直接删除；" +
+                        "已经生成小说资料（AI 分析过）的作品会移入回收站，30 天内可恢复。",
+                )
+            },
             confirmButton = {
-                TextButton(onClick = { viewModel.moveToTrash(id); pendingDeleteBookId = null; Toast.makeText(context, "已移入回收站", Toast.LENGTH_SHORT).show() }) { Text("移入回收站") }
+                TextButton(
+                    onClick = {
+                        pendingDeleteBookId = null
+                        val message = when (viewModel.deleteBook(id)) {
+                            BookDeleteResult.DELETED -> "已删除"
+                            BookDeleteResult.TRASHED -> "已移入回收站"
+                            BookDeleteResult.FAILED -> "删除失败"
+                        }
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    },
+                ) { Text("删除") }
             },
             dismissButton = { TextButton(onClick = { pendingDeleteBookId = null }) { Text("取消") } },
         )
@@ -434,8 +468,15 @@ private fun BookFolderContent(
     onOpenFile: (String) -> Unit,
 ) {
     val relativePath = path.joinToString("/")
-    val entries = remember(book.id, relativePath) { viewModel.entries(book.id, relativePath) }
+    var entries by remember(book.id, relativePath) { mutableStateOf<List<NovelEntry>>(emptyList()) }
+    var loading by remember(book.id, relativePath) { mutableStateOf(true) }
     val title = path.lastOrNull() ?: book.title
+
+    LaunchedEffect(book.id, relativePath) {
+        loading = true
+        entries = withContext(Dispatchers.IO) { viewModel.entries(book.id, relativePath) }
+        loading = false
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -489,16 +530,24 @@ private fun BookFolderContent(
                 }
             }
 
-            if (entries.isEmpty()) item {
-                Text(
-                    text = "此目录为空。",
-                    modifier = Modifier.padding(vertical = 24.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else items(entries, key = { it.path }) { entry ->
-                EntryRow(entry = entry) {
-                    if (entry.isDirectory) onOpenFolder(entry.name) else onOpenFile(entry.path)
+            when {
+                loading -> item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
+                        Text("加载中…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                entries.isEmpty() -> item {
+                    Text(
+                        text = "此目录为空。",
+                        modifier = Modifier.padding(vertical = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> items(entries, key = { it.path }) { entry ->
+                    EntryRow(entry = entry) {
+                        if (entry.isDirectory) onOpenFolder(entry.name) else onOpenFile(entry.path)
+                    }
                 }
             }
         }
@@ -549,17 +598,28 @@ private fun BookFileEditor(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
-    val original = remember(book.id, relativePath) {
-        viewModel.readFile(book.id, relativePath)
-    }
-    var content by remember(book.id, relativePath) { mutableStateOf(original.orEmpty()) }
+    var loaded by remember(book.id, relativePath) { mutableStateOf(false) }
+    var original by remember(book.id, relativePath) { mutableStateOf<String?>(null) }
+    var content by remember(book.id, relativePath) { mutableStateOf("") }
+    var editing by remember(book.id, relativePath) { mutableStateOf(false) }
     var showDiscard by remember { mutableStateOf(false) }
-    val dirty = content != original.orEmpty()
 
-    fun save() {
+    LaunchedEffect(book.id, relativePath) {
+        val text = withContext(Dispatchers.IO) { viewModel.readFile(book.id, relativePath) }
+        original = text
+        content = text.orEmpty()
+        loaded = true
+    }
+
+    // 只有编辑模式下的改动才算未保存。
+    val dirty = editing && content != original.orEmpty()
+
+    fun save(exitAfter: Boolean) {
         if (viewModel.writeFile(book.id, relativePath, content)) {
             Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
-            onClose()
+            original = content
+            editing = false
+            if (exitAfter) onClose()
         } else {
             Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
         }
@@ -590,25 +650,28 @@ private fun BookFileEditor(
                 }
             },
             actions = {
-                if (original == null) {
-                    Text("无法读取", color = MaterialTheme.colorScheme.error)
-                } else {
-                    TextButton(
-                        onClick = ::save,
+                when {
+                    !loaded -> Unit
+                    original == null -> Text("无法读取", color = MaterialTheme.colorScheme.error)
+                    editing -> TextButton(
+                        onClick = { save(exitAfter = false) },
                         enabled = dirty,
                     ) { Text("保存") }
+                    else -> TextButton(onClick = { editing = true }) { Text("编辑") }
                 }
             },
         )
-        if (original == null) {
-            Text(
+        when {
+            !loaded -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("加载中…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            original == null -> Text(
                 text = "文件过大或编码无法识别，暂不支持在此编辑。",
                 modifier = Modifier.padding(20.dp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        } else {
-            OutlinedTextField(
+            editing -> OutlinedTextField(
                 value = content,
                 onValueChange = { content = it },
                 modifier = Modifier
@@ -616,6 +679,16 @@ private fun BookFileEditor(
                     .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 textStyle = MaterialTheme.typography.bodyMedium,
             )
+            else -> SelectionContainer {
+                Text(
+                    text = original.orEmpty(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 
@@ -625,7 +698,7 @@ private fun BookFileEditor(
             title = { Text("保存修改？") },
             text = { Text("这个文件有未保存的修改，离开前要先保存吗？") },
             confirmButton = {
-                TextButton(onClick = { showDiscard = false; save() }) { Text("保存并退出") }
+                TextButton(onClick = { showDiscard = false; save(exitAfter = true) }) { Text("保存并退出") }
             },
             dismissButton = {
                 Row {

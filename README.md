@@ -9,10 +9,9 @@
 
 | 版本 | 更新内容 | 下载 |
 |------|----------|------|
+| v0.10.1 | 修复一键到底（先定位最后一条再滚到列表真实末尾）｜修复回收站删除后作品仍留在列表｜重复导入不再卡死（导入与目录读取改为后台线程）｜导入小说只保留章节内容，小说资料由 AI 分析后生成｜小说正文默认只读，点「编辑」才可修改，有未保存改动返回时弹窗确认｜相册封面校验 600×800 像素、≤5MB，不合规给出具体提示｜仅导入未分析的作品直接删除，AI 分析过的移入回收站 | [mozhuan-v0.10.1.apk](https://github.com/tes9523/mozhuan/releases/download/v0.10.1/mozhuan-v0.10.1.apk) |
 | v0.10.0 | 修复对话一键到底按钮（最后一条消息真正滚到视口底部）｜小说支持删除 + 回收站中转，回收站再次删除才彻底清除（过期自动清理）｜导入小说只创建章节内容，小说资料交给 AI 按需创建｜小说封面支持更换：内置 6 款渐变封皮 + 相册上传自定义封面｜章节目录每章显示字数统计（自动按字符数计算） | [mozhuan-v0.10.0.apk](https://github.com/tes9523/mozhuan/releases/download/v0.10.0/mozhuan-v0.10.0.apk) |
 | v0.9.9 | 小说页只显示小说，过滤 skills 等非小说目录｜导入仅支持 TXT / DOCX / MD 并校验格式｜工具调用轮数上限提升到 100｜AI 可在挂载的外部文件夹（mounts/<名称>/）下创建新书与目录结构，挂载目录中的小说也会呈现在小说页｜技能编辑页系统返回键 / 手势也弹出保存提示 | [mozhuan-v0.9.9.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.9/mozhuan-v0.9.9.apk) |
-| v0.9.8 | 技能按内置 / 自定义分组，内置置顶｜书稿功能开启：我的小说空态、新建作品（封面 + 名称）、目录浏览与正文编辑｜支持导入 TXT / DOCX / MD 并自动识别书名与章节｜AI 对话写入的小说直接呈现在书稿，作品固定「小说资料（设定 / 大纲 / 章节摘要）+ 章节内容」结构 | [mozhuan-v0.9.8.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.8/mozhuan-v0.9.8.apk) |
-| v0.9.7 | 技能详情去掉重复编辑入口、描述字号缩小｜模型组/记忆等内部页面返回逐级回退｜对话一键到顶 / 到底｜点击空白收起输入法｜长按菜单跟随气泡｜AI 正文可直接选中复制 | [mozhuan-v0.9.7.apk](https://github.com/tes9523/mozhuan/releases/download/v0.9.7/mozhuan-v0.9.7.apk) |
 
 > 仅保留最新 3 个版本下载链接，历史版本请前往 [Releases](https://github.com/tes9523/mozhuan/releases) 页面。
 

@@ -1,6 +1,8 @@
 package com.mozhuan.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.mozhuan.data.model.Novel
@@ -13,6 +15,11 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.zip.ZipInputStream
+
+/**
+ * 删除作品的结果：直接删除 / 移入回收站 / 失败。
+ */
+enum class BookDeleteResult { DELETED, TRASHED, FAILED }
 
 /**
  * 书稿仓库：`book/<书名>/` 下每本小说可包含「小说资料」和「章节内容」。
@@ -95,7 +102,7 @@ class BooksRepository(
             dir = File(root, "$name (${index++})")
         }
         dir.mkdirs()
-        writeMeta(dir, title = name, coverIndex = coverIndex, coverPath = null)
+        writeMeta(dir, title = name, coverIndex = coverIndex, coverPath = null, imported = false)
         ensureStandardStructure(dir)
         reload()
         return _books.value.first { it.id == dir.name }
@@ -134,10 +141,22 @@ class BooksRepository(
             }
     }
 
-    /** 进入小说目录前的补齐逻辑：本地书补齐标准结构，挂载书只读。 */
+    /** 进入小说目录前的补齐逻辑：导入书只保证「章节内容」存在，其它目录交给 AI。 */
     fun ensureBookOnEnter(bookId: String) {
         if (isMountedBook(bookId)) return
-        ensureStructure(bookId)
+        val dir = File(root, bookId)
+        if (!dir.isDirectory) return
+        val meta = readMeta(dir)
+        if (meta.optBoolean("imported", false)) {
+            File(dir, "章节内容").mkdirs()
+            // 兼容旧版本自动创建的空「小说资料」，没有实际内容就移除。
+            val infoDir = File(dir, "小说资料")
+            if (infoDir.isDirectory && infoDir.walkTopDown().none { it.isFile }) {
+                runCatching { infoDir.deleteRecursively() }
+            }
+            return
+        }
+        ensureStandardStructure(dir)
     }
 
     fun listEntries(bookId: String, relativePath: String): List<NovelEntry> {
@@ -180,26 +199,46 @@ class BooksRepository(
         }.getOrDefault(false)
     }
 
-    /** 上传封面：把图片存到 `<book>/.cover/` 并更新 meta。 */
-    fun setCoverFromGallery(bookId: String, uri: Uri): String? {
-        if (isMountedBook(bookId)) return null
+    /**
+     * 上传封面：要求 600 × 800 像素、不超过 5MB，统一转存为 JPEG。
+     * 返回成功路径或具体的失败原因。
+     */
+    fun setCoverFromGallery(bookId: String, uri: Uri): Result<String> = runCatching {
+        if (isMountedBook(bookId)) error("挂载目录中的小说不支持更换封面")
         val bookDir = File(root, bookId)
-        if (!bookDir.isDirectory) return null
+        if (!bookDir.isDirectory) error("作品目录不存在")
+
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: error("无法读取所选图片")
+        if (bytes.size > MAX_COVER_BYTES) {
+            error("图片不能超过 5MB（当前 ${String.format(java.util.Locale.US, "%.1f", bytes.size / 1024f / 1024f)}MB）")
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) error("无法识别的图片格式")
+        if (width != COVER_WIDTH || height != COVER_HEIGHT) {
+            error("封面尺寸需为 ${COVER_WIDTH} × ${COVER_HEIGHT} 像素（当前 ${width} × ${height}）")
+        }
+
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: error("图片解码失败")
         val coverDir = File(bookDir, ".cover").apply { mkdirs() }
         val target = File(coverDir, "cover_${System.currentTimeMillis()}.jpg")
-        val ok = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { input.copyTo(it) }
-                true
-            } ?: false
+        val saved = runCatching {
+            target.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         }.getOrDefault(false)
-        if (!ok) return null
-        // 清理旧的 cover 文件
+        bitmap.recycle()
+        if (!saved || !target.isFile || target.length() == 0L) error("封面保存失败")
+
         coverDir.listFiles()?.filter { it.name != target.name }?.forEach { it.delete() }
         val meta = readMeta(bookDir).put("coverPath", ".cover/${target.name}")
         File(bookDir, META_FILE).writeText(meta.toString())
+        bookDir.setLastModified(System.currentTimeMillis())
         reload()
-        return ".cover/${target.name}"
+        ".cover/${target.name}"
     }
 
     fun setBuiltInCover(bookId: String, coverIndex: Int) {
@@ -207,7 +246,11 @@ class BooksRepository(
         val bookDir = File(root, bookId)
         if (!bookDir.isDirectory) return
         runCatching { File(bookDir, ".cover").deleteRecursively() }
-        writeMeta(bookDir, title = readMeta(bookDir).optString("title").ifBlank { bookId }, coverIndex = coverIndex, coverPath = null)
+        val meta = readMeta(bookDir)
+            .put("cover", coverIndex)
+            .remove("coverPath")
+        File(bookDir, META_FILE).writeText(meta.toString())
+        bookDir.setLastModified(System.currentTimeMillis())
         reload()
     }
 
@@ -219,24 +262,33 @@ class BooksRepository(
         return File(bookDir, path).takeIf { it.isFile }
     }
 
-    /** 软删除 → 回收站。挂载目录不支持回收，直接跳过。 */
-    fun moveToTrash(bookId: String): Boolean {
-        if (isMountedBook(bookId)) return false
+    /**
+     * 删除作品：仅导入正文（没有「小说资料」）的直接彻底删除，
+     * 已经生成小说资料（AI 分析过）的移入回收站。
+     */
+    fun deleteBook(bookId: String): BookDeleteResult {
+        if (isMountedBook(bookId)) return BookDeleteResult.FAILED
         val src = File(root, bookId)
-        if (!src.isDirectory) return false
+        if (!src.isDirectory) return BookDeleteResult.FAILED
+        // 「小说资料」里有实际文件才算 AI 分析过。
+        val analyzed = File(src, "小说资料").walkTopDown().any { it.isFile && !it.name.startsWith(".") }
+        if (!analyzed) {
+            val ok = runCatching { src.deleteRecursively() }.getOrDefault(false)
+            reload()
+            return if (ok) BookDeleteResult.DELETED else BookDeleteResult.FAILED
+        }
         val ts = System.currentTimeMillis()
         val target = File(trashRoot, "${TRASH_PREFIX}${ts}_${src.name}")
-        // 把原路径与 meta 写入一份，恢复时需要。
+        // 先把原路径与删除时间写进书自己的 meta，再整体搬走。
         runCatching {
-            JSONObject(src.resolve(META_FILE).takeIf { it.isFile }?.readText().orEmpty())
+            val meta = readMeta(src)
                 .put("originalPath", "book/${src.name}")
                 .put("trashedAt", ts)
-                .toString()
-                .let { target.writeText(it) }
+            File(src, META_FILE).writeText(meta.toString())
         }
         val ok = src.renameTo(target)
         reload()
-        return ok
+        return if (ok) BookDeleteResult.TRASHED else BookDeleteResult.FAILED
     }
 
     fun restoreFromTrash(trashId: String): Boolean {
@@ -292,7 +344,7 @@ class BooksRepository(
             target.name
         }
         val dir = File(root, name).apply { mkdirs() }
-        writeMeta(dir, title = name, coverIndex = 0, coverPath = null)
+        writeMeta(dir, title = name, coverIndex = 0, coverPath = null, imported = true)
         // 导入：只建「章节内容」，小说资料交给 AI 按需创建。
         ensureImportStructure(dir)
         val chapterDir = File(dir, "章节内容")
@@ -348,12 +400,19 @@ class BooksRepository(
         return runCatching { JSONObject(file.readText()) }.getOrDefault(JSONObject())
     }
 
-    private fun writeMeta(dir: File, title: String, coverIndex: Int, coverPath: String?) {
+    private fun writeMeta(
+        dir: File,
+        title: String,
+        coverIndex: Int,
+        coverPath: String?,
+        imported: Boolean = false,
+    ) {
         runCatching {
             File(dir, META_FILE).writeText(
                 JSONObject()
                     .put("title", title)
                     .put("cover", coverIndex)
+                    .put("imported", imported)
                     .apply { coverPath?.let { put("coverPath", it) } }
                     .toString(),
             )
@@ -517,6 +576,9 @@ class BooksRepository(
         const val MOUNT_PREFIX = "mount:"
         const val TRASH_PREFIX = "trash_"
         const val MAX_FILE_BYTES = 4 * 1024 * 1024L
+        const val MAX_COVER_BYTES = 5 * 1024 * 1024L
+        const val COVER_WIDTH = 600
+        const val COVER_HEIGHT = 800
         val TEXT_EXTENSIONS = setOf("md", "txt", "markdown")
         val SUPPORTED_IMPORT_EXTENSIONS = setOf("txt", "md", "markdown", "docx")
         val STANDARD_FOLDERS = listOf(
