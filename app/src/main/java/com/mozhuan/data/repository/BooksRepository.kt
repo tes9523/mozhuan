@@ -267,7 +267,13 @@ class BooksRepository(
      * 已经生成小说资料（AI 分析过）的移入回收站。
      */
     fun deleteBook(bookId: String): BookDeleteResult {
-        if (isMountedBook(bookId)) return BookDeleteResult.FAILED
+        if (isMountedBook(bookId)) {
+            // 外部挂载目录无法移动到应用内回收站，直接删除目录。
+            val dir = mountedRoot(bookId) ?: return BookDeleteResult.FAILED
+            val ok = runCatching { deleteDocumentTree(dir) }.getOrDefault(false)
+            reload()
+            return if (ok) BookDeleteResult.DELETED else BookDeleteResult.FAILED
+        }
         val src = File(root, bookId)
         if (!src.isDirectory) return BookDeleteResult.FAILED
         // 「小说资料」里有实际文件才算 AI 分析过。
@@ -278,7 +284,12 @@ class BooksRepository(
             return if (ok) BookDeleteResult.DELETED else BookDeleteResult.FAILED
         }
         val ts = System.currentTimeMillis()
-        val target = File(trashRoot, "${TRASH_PREFIX}${ts}_${src.name}")
+        var target = File(trashRoot, "${TRASH_PREFIX}${ts}_${src.name}")
+        var i = 2
+        while (target.exists()) {
+            target = File(trashRoot, "${TRASH_PREFIX}${ts}_${src.name} ($i)")
+            i++
+        }
         // 先把原路径与删除时间写进书自己的 meta，再整体搬走。
         runCatching {
             val meta = readMeta(src)
@@ -287,8 +298,14 @@ class BooksRepository(
             File(src, META_FILE).writeText(meta.toString())
         }
         val ok = src.renameTo(target)
+        if (!ok) {
+            // 目录被占用等情况下退回直接删除，至少不让用户看到「删除失败」。
+            val deleted = runCatching { src.deleteRecursively() }.getOrDefault(false)
+            reload()
+            return if (deleted) BookDeleteResult.DELETED else BookDeleteResult.FAILED
+        }
         reload()
-        return if (ok) BookDeleteResult.TRASHED else BookDeleteResult.FAILED
+        return BookDeleteResult.TRASHED
     }
 
     fun restoreFromTrash(trashId: String): Boolean {
@@ -420,11 +437,17 @@ class BooksRepository(
     }
 
     private fun detectTitle(content: String, fileName: String): String {
+        // 优先使用文件名，避免正文里出现的书名（章内引用等）覆盖真实书名。
+        val base = fileName.substringBeforeLast('.').trim().trim('《', '》').trim()
+        val generic = setOf(
+            "", "document", "untitled", "未命名", "未命名作品", "新建文档", "正文", "全文", "index",
+        )
+        if (base.isNotBlank() && base.length <= 60 && base.lowercase() !in generic) return base
         Regex("《([^》\\n]{1,40})》").find(content)?.let { return it.groupValues[1].trim() }
         content.lineSequence().map { it.trim() }
             .firstOrNull { it.startsWith("# ") }
             ?.removePrefix("#")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        return fileName.substringBeforeLast('.').trim().ifBlank { "未命名作品" }
+        return base.ifBlank { "未命名作品" }
     }
 
     private fun splitChapters(content: String): List<Chapter> {
@@ -496,6 +519,14 @@ class BooksRepository(
     }
 
     private fun isMountedBook(bookId: String): Boolean = bookId.startsWith(MOUNT_PREFIX)
+
+    /** 递归删除 SAF 目录：部分提供方不支持直接删除非空目录。 */
+    private fun deleteDocumentTree(dir: DocumentFile): Boolean {
+        runCatching { dir.listFiles().orEmpty() }.getOrDefault(emptyArray()).forEach { child ->
+            runCatching { deleteDocumentTree(child) }
+        }
+        return runCatching { dir.delete() }.getOrDefault(false)
+    }
 
     private fun mountBookId(mountId: String, dirName: String) = "$MOUNT_PREFIX$mountId:$dirName"
     private fun parseMountBookId(bookId: String): Pair<String, String>? {

@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -187,23 +188,51 @@ fun AiChatScreen(
         }
     }
 
+    var restoredScroll by remember { mutableStateOf(false) }
+
+    // 恢复上次离开时的滚动位置（进入页面只做一次）。
+    LaunchedEffect(messages.size) {
+        if (!restoredScroll && messages.isNotEmpty()) {
+            val index = viewModel.savedScrollIndex.coerceIn(0, messages.lastIndex)
+            listState.scrollToItem(index, viewModel.savedScrollOffset)
+            restoredScroll = true
+        }
+    }
+
+    // 记录滚动位置：等恢复完成后再开始记录，避免初始帧把保存的位置覆盖成 0。
+    LaunchedEffect(listState, restoredScroll) {
+        if (!restoredScroll) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) -> viewModel.saveScrollPosition(index, offset) }
+    }
+
+    // 只有后续新消息 / 流式输出才自动贴底，进入页面时不强制跳到底部。
+    var autoScrollArmed by remember { mutableStateOf(false) }
     LaunchedEffect(
         displaySettings.autoScroll,
         messages.size,
         messages.lastOrNull()?.content?.length,
         messages.lastOrNull()?.reasoning?.length,
     ) {
+        if (!autoScrollArmed) {
+            autoScrollArmed = true
+            return@LaunchedEffect
+        }
         if (displaySettings.autoScroll && messages.isNotEmpty()) {
             listState.scrollToItem(messages.lastIndex)
+            listState.scrollBy(BOTTOM_SCROLL_BY)
         }
     }
 
-    // 输入法弹出 / 输入框增高导致列表可视高度变化时，保持贴底，让内容跟随输入框上移。
+    // 输入法弹出 / 输入框增高导致列表可视高度变化时，保持贴底；原本不在底部则不打扰。
     LaunchedEffect(displaySettings.autoScroll, messages.size) {
         snapshotFlow { listState.layoutInfo.viewportSize.height }
             .collect { height ->
-                if (height > 0 && displaySettings.autoScroll && messages.isNotEmpty()) {
+                if (height > 0 && restoredScroll && displaySettings.autoScroll &&
+                    messages.isNotEmpty() && !listState.canScrollForward
+                ) {
                     listState.scrollToItem(messages.lastIndex)
+                    listState.scrollBy(BOTTOM_SCROLL_BY)
                 }
             }
     }

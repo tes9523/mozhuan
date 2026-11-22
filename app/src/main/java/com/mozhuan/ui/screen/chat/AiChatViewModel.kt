@@ -89,6 +89,17 @@ class AiChatViewModel(
     private val _toolStatus = MutableStateFlow<String?>(null)
     val toolStatus: StateFlow<String?> = _toolStatus.asStateFlow()
 
+    /** 记住聊天列表的滚动位置，切走再回来时恢复原处。 */
+    var savedScrollIndex: Int = 0
+        private set
+    var savedScrollOffset: Int = 0
+        private set
+
+    fun saveScrollPosition(index: Int, offset: Int) {
+        savedScrollIndex = index.coerceAtLeast(0)
+        savedScrollOffset = offset.coerceAtLeast(0)
+    }
+
     val displaySettings: StateFlow<DisplaySettings> = settingsRepository.displaySettings
     val selectedEntryId: StateFlow<String> = providerRepository.selectedEntryId
     val selectedGroupId: StateFlow<String> = providerRepository.selectedGroupId
