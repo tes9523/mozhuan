@@ -20,8 +20,8 @@ android {
         applicationId = "com.mozhuan"
         minSdk = 33
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.10.2"
+        versionCode = 21
+        versionName = "0.10.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -78,6 +78,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.okhttp)
     implementation(libs.markwon.core)
+    implementation(libs.markwon.ext.tables)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

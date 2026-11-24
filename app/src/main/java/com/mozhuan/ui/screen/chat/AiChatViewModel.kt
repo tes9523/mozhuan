@@ -582,25 +582,37 @@ class AiChatViewModel(
             if (isNotEmpty()) append("\n\n")
             append(memory)
         }
-        if (settingsRepository.toolSettings.value.writeFiles) {
-            if (isNotEmpty()) append("\n\n")
-            append("# 书稿目录约定\n")
-            append("每本小说位于 book/<书名>/ 下：正文写入「章节内容/」，")
-            append("例如 book/书名/章节内容/第01章 标题.md；")
-            append("世界观写入 book/书名/小说资料/设定/世界观/，人物写入 book/书名/小说资料/设定/人物库/，")
-            append("大纲写入 book/书名/小说资料/大纲/，章节摘要写入 book/书名/小说资料/章节摘要/。")
-            append("写入任一文件即可在书稿页看到整本小说，缺失的目录会自动补齐。")
-            val mounts = settingsRepository.mountedFolders.value
-            if (mounts.isNotEmpty()) {
-                append("\n\n# 已挂载的外部文件夹\n")
-                append("用户已挂载以下外部文件夹，可通过 mounts/<名称>/<相对路径> 读写：")
-                mounts.forEach { mount ->
-                    append("\n- mounts/").append(mount.name).append('/')
-                }
-                append("\n用户要求把新书放到某个文件夹时，在对应挂载目录下创建子文件夹并写入完整结构，")
-                append("例如 mounts/墨撰/新书/章节内容/第01章 标题.md。")
-            }
+        val toolSettings = settingsRepository.toolSettings.value
+        val mounts = settingsRepository.mountedFolders.value
+        if (isNotEmpty()) append("\n\n")
+        append("# 存储位置\n")
+        append("应用只有两类长期存储，不要混淆：\n")
+        append("- 内置文件夹（书稿）：book/<书名>/，小说正文与资料都在这里。\n")
+        append("- 记忆：memory/，只保存跨对话的用户偏好与创作约定，不是小说设定库，不要把小说设定写进记忆。\n")
+        if (toolSettings.writeFiles) {
+            append("用户要求把设定、世界观、人物、大纲等写进「内置文件夹」时，用 write_file 写到 book/<书名>/小说资料/ 下。\n")
+            append("目录约定：正文写入 book/<书名>/章节内容/（如 book/书名/章节内容/第01章 标题.md）；")
+            append("世界观写入 book/<书名>/小说资料/设定/世界观/；人物写入 book/<书名>/小说资料/设定/人物库/；")
+            append("大纲写入 book/<书名>/小说资料/大纲/；章节摘要写入 book/<书名>/小说资料/章节摘要/。")
+            append("写入任一文件即可在书稿页看到整本小说，缺失目录会自动补齐。\n")
+            append("不确定书名时，先用 list_files 读取 book 目录确认，不要臆造。\n")
+        } else {
+            append("当前未开启「写入书稿」工具，无法写入文件。用户要求写文件时，请提示到「设置 → 可用工具」打开「写入书稿」，在此之前不要用 save_memory 代替写入书稿。\n")
         }
+        append("\n# 已挂载的外部文件夹\n")
+        if (mounts.isNotEmpty()) {
+            append("用户已在设置中挂载以下外部文件夹，可通过 mounts/<名称>/<相对路径> 读写：")
+            mounts.forEach { mount ->
+                append("\n- mounts/").append(mount.name).append('/')
+            }
+            append("\n用户要求把新书或设定放到外部文件夹时，在对应挂载目录下创建子文件夹后写入，")
+            append("例如 mounts/墨撰/新书/章节内容/第01章 标题.md。\n")
+        } else {
+            append("当前没有挂载任何外部文件夹。用户要求写入外部文件夹时，请提示先到「设置 → 挂载文件夹」添加。\n")
+        }
+        append("\n# 输出格式\n")
+        append("需要表格时使用标准 Markdown 表格：表头一行、分隔行一行（如 |---|---|）、每条数据单独一行；")
+        append("表格要完整输出，不要省略、折叠或截断。\n")
     }
 
     /** 从当前待发送的用户消息中解析 @技能名 / @技能 id。 */

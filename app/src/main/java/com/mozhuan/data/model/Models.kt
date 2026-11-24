@@ -233,7 +233,7 @@ data class NotificationSettings(
 /** 可用工具开关：关闭后不再向模型发送该工具的 schema。 */
 data class ToolSettings(
     val readFiles: Boolean = true,
-    val writeFiles: Boolean = false,
+    val writeFiles: Boolean = true,
     val webFetch: Boolean = true,
     val memoryWrite: Boolean = true,
 ) {

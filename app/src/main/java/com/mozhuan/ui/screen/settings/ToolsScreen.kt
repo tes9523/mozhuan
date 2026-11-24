@@ -66,7 +66,7 @@ fun ToolsScreen(
                 SettingsDivider()
                 NotificationSwitchRow(
                     title = "写入书稿",
-                    subtitle = "把正文、大纲、设定写入 book/，会自动创建目录",
+                    subtitle = "写入内置书稿文件夹 book/（正文、大纲、设定），会自动创建目录",
                     checked = settings.writeFiles,
                     onCheckedChange = viewModel::setWriteFiles,
                 )
@@ -80,7 +80,7 @@ fun ToolsScreen(
                 SettingsDivider()
                 NotificationSwitchRow(
                     title = "写入记忆",
-                    subtitle = "让 AI 把偏好、设定写入今天的记忆文件",
+                    subtitle = "保存跨对话的用户偏好与创作约定；记忆不是小说设定库，小说设定请用「写入书稿」",
                     checked = settings.memoryWrite,
                     onCheckedChange = viewModel::setMemoryWrite,
                 )

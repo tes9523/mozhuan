@@ -62,7 +62,7 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "list_files",
-                    description = "列出 book / skills / memory 或挂载的外部文件夹（mounts/<名称>/）下的文件。只读，不会修改任何内容。",
+                    description = "列出 book（内置书稿文件夹）/ skills / memory（长期记忆）或挂载的外部文件夹（mounts/<名称>/）下的文件。只读，不会修改任何内容。",
                     parameters = parameters(
                         "path" to stringProperty("目录路径，例如 book、skills、memory、mounts/墨撰"),
                     ),
@@ -82,7 +82,7 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "write_file",
-                    description = "把文本写入 book/、skills/ 或挂载的外部文件夹 mounts/<名称>/，自动创建父目录。创建或修改技能时使用 skills/<name>/SKILL.md 以及 skills/<name>/references/ 等路径；新建小说时写入 book/<书名>/... 或 mounts/<挂载名>/<书名>/...；内置 skill-creator 只读，不可写入。",
+                    description = "把文本写入内置书稿文件夹 book/、skills/ 或挂载的外部文件夹 mounts/<名称>/，自动创建父目录。小说正文与设定写 book/<书名>/（设定写 book/<书名>/小说资料/设定/），不要写进 memory（记忆只存偏好）。创建或修改技能时使用 skills/<name>/SKILL.md；新建小说时写入 book/<书名>/... 或 mounts/<挂载名>/<书名>/...；内置 skill-creator 只读，不可写入。",
                     parameters = parameters(
                         "path" to stringProperty("相对路径，例如 第一章.md（书稿）、skills/my-skill/SKILL.md（技能）、mounts/墨撰/新书/章节内容/第01章.md"),
                         "content" to stringProperty("要写入的完整文本"),
@@ -106,7 +106,7 @@ class ToolRegistry(
             add(
                 ToolSpec(
                     name = "save_memory",
-                    description = "把值得长期记住的用户偏好、作品设定或创作约定写入今天的记忆文件，后续对话会自动携带。",
+                    description = "把值得长期记住的用户偏好或创作约定写入今天的记忆文件，后续对话会自动携带。注意：记忆不是小说设定库，小说设定、世界观、人物等请用 write_file 写入 book/<书名>/小说资料/。",
                     parameters = parameters(
                         "content" to stringProperty("要记住的内容，一句话或一小段"),
                     ),

@@ -481,7 +481,7 @@ class AppPreferences(context: Context) {
     private val _toolSettings = MutableStateFlow(
         ToolSettings(
             readFiles = prefs.getBoolean(KEY_TOOL_READ, true),
-            writeFiles = prefs.getBoolean(KEY_TOOL_WRITE, false),
+            writeFiles = prefs.getBoolean(KEY_TOOL_WRITE, true),
             webFetch = prefs.getBoolean(KEY_TOOL_WEB, true),
             memoryWrite = prefs.getBoolean(KEY_TOOL_MEMORY, true),
         ),

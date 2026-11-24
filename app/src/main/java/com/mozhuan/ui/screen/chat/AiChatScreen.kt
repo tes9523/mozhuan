@@ -90,6 +90,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import io.noties.markwon.Markwon
+import io.noties.markwon.ext.tables.TablePlugin
 import kotlinx.coroutines.launch
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.data.model.ChatMessage
@@ -1349,7 +1350,11 @@ private fun MarkdownText(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val markwon = remember(context) { Markwon.builder(context).build() }
+    val markwon = remember(context) {
+        Markwon.builder(context)
+            .usePlugin(TablePlugin.create(context))
+            .build()
+    }
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val fontSize = MaterialTheme.typography.bodyMedium.fontSize.value
     AndroidView(

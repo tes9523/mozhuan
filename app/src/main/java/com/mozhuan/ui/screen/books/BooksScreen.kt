@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -155,7 +157,9 @@ fun BooksScreen(
         coverDialogForBook = null
         if (uri == null || bookId == null) return@rememberLauncherForActivityResult
         scope.launch {
-            viewModel.setCoverFromGallery(bookId, uri)
+            // 解码、压缩与落盘放到 IO 线程，避免大图在主线程 OOM / 卡死。
+            val result = withContext(Dispatchers.IO) { viewModel.setCoverFromGallery(bookId, uri) }
+            result
                 .onSuccess { Toast.makeText(context, "封面已更新", Toast.LENGTH_SHORT).show() }
                 .onFailure {
                     Toast.makeText(context, "封面更新失败：${it.message}", Toast.LENGTH_LONG).show()
@@ -869,8 +873,20 @@ private fun BookCover(
     val context = LocalContext.current
     val bitmap = remember(customCoverPath) {
         customCoverPath?.let { rel ->
-            val f = java.io.File(context.filesDir, "book/$rel")
-            if (f.isFile) BitmapFactory.decodeFile(f.absolutePath) else null
+            runCatching {
+                val file = java.io.File(context.filesDir, "book/$rel")
+                if (!file.isFile) return@runCatching null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                // 历史版本可能存过超大原图，按最长边约 1024px 采样，避免解码 OOM 闪退。
+                var sample = 1
+                val longest = maxOf(bounds.outWidth, bounds.outHeight)
+                while (longest > 0 && longest / (sample * 2) >= 1024) sample *= 2
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inSampleSize = sample },
+                )
+            }.getOrNull()
         }
     }
     when {
@@ -1002,8 +1018,11 @@ private fun ChangeCoverDialog(
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(COVER_GRADIENTS.indices.toList()) { index ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    COVER_GRADIENTS.indices.forEach { index ->
                         Surface(
                             modifier = Modifier
                                 .width(60.dp)
