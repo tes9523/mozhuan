@@ -238,7 +238,13 @@ fun BooksScreen(
         ChangeCoverDialog(
             book = book,
             viewModel = viewModel,
-            onPickFromGallery = { coverLauncher.launch("image/*") },
+            onPickFromGallery = {
+                // 个别机型没有系统图库选择器，避免 ActivityNotFoundException 直接闪退。
+                runCatching { coverLauncher.launch("image/*") }
+                    .onFailure {
+                        Toast.makeText(context, "无法打开相册：${it.message}", Toast.LENGTH_SHORT).show()
+                    }
+            },
             onPickBuiltIn = { index -> viewModel.setBuiltInCover(bookId, index); coverDialogForBook = null },
             onDismiss = { coverDialogForBook = null },
         )

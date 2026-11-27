@@ -1,6 +1,7 @@
 package com.mozhuan.ui.screen.settings
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +59,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mozhuan.system.file.TextFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 private enum class ImportTarget { SKILL, PERSONA }
 
@@ -82,6 +92,7 @@ fun SharedFolderScreen(
     var importTarget by remember { mutableStateOf(ImportTarget.SKILL) }
     var preview by remember { mutableStateOf<TextDocument?>(null) }
     var pendingExport by remember { mutableStateOf<TextDocument?>(null) }
+    var showBooks by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.refreshSkills() }
 
@@ -130,6 +141,14 @@ fun SharedFolderScreen(
         importLauncher.launch(arrayOf("text/plain", "text/markdown", "application/octet-stream"))
     }
 
+    if (showBooks) {
+        BookBrowser(
+            root = File(context.filesDir, "book"),
+            onExit = { showBooks = false },
+        )
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("共享文件夹", fontWeight = FontWeight.SemiBold) },
@@ -167,9 +186,7 @@ fun SharedFolderScreen(
                 title = "书稿",
                 writable = true,
                 path = "/var/minis/book",
-                onClick = {
-                    Toast.makeText(context, "书稿目录读写功能开发中", Toast.LENGTH_SHORT).show()
-                },
+                onClick = { showBooks = true },
             )
 
             FolderCard(
@@ -423,4 +440,219 @@ private fun AccessBadge(writable: Boolean) {
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
+}
+
+private val BOOK_TEXT_EXTENSIONS = setOf("txt", "md", "markdown")
+
+/**
+ * 书稿目录浏览器：浏览内置 book 目录，进入子文件夹、预览/编辑文本、从手机导入。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BookBrowser(
+    root: File,
+    onExit: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var path by remember { mutableStateOf<List<String>>(emptyList()) }
+    var entries by remember { mutableStateOf<List<File>>(emptyList()) }
+    var editing by remember { mutableStateOf<File?>(null) }
+    var reloadKey by remember { mutableStateOf(0) }
+
+    val dir = remember(path) { path.fold(root) { acc, name -> File(acc, name) } }
+
+    LaunchedEffect(dir, reloadKey) {
+        entries = withContext(Dispatchers.IO) {
+            (dir.listFiles() ?: emptyArray())
+                .filter { !it.name.startsWith(".") }
+                .sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val rawName = TextFiles.displayName(context, uri).ifBlank { "导入.txt" }
+                    val name = rawName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?.let { bytes ->
+                            val utf8 = String(bytes, Charsets.UTF_8)
+                            if ('\uFFFD' !in utf8) utf8
+                            else runCatching { String(bytes, charset("GBK")) }.getOrDefault(utf8)
+                        } ?: error("无法读取所选文件")
+                    var target = File(dir, name)
+                    var i = 2
+                    while (target.exists()) {
+                        val base = name.substringBeforeLast('.', name)
+                        val ext = name.substringAfterLast('.', "").let { if (it == name) "" else ".$it" }
+                        target = File(dir, "$base ($i)$ext")
+                        i++
+                    }
+                    target.writeText(text)
+                    target.name
+                }
+            }
+            result
+                .onSuccess {
+                    reloadKey++
+                    Toast.makeText(context, "已导入 $it", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+                }
+        }
+    }
+
+    val goBack = {
+        if (path.isNotEmpty()) path = path.dropLast(1) else onExit()
+    }
+    BackHandler { goBack() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = {
+                Column {
+                    Text(
+                        text = path.lastOrNull() ?: "书稿",
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "/var/minis/book" + if (path.isEmpty()) "" else "/" + path.joinToString("/"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            navigationIcon = {
+                IconButton(onClick = { goBack() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            },
+            actions = {
+                TextButton(
+                    onClick = {
+                        importLauncher.launch(
+                            arrayOf("text/plain", "text/markdown", "application/octet-stream", "*/*"),
+                        )
+                    },
+                ) { Text("导入") }
+            },
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp),
+        ) {
+            if (entries.isEmpty()) {
+                item {
+                    Text(
+                        text = "此目录为空，可从手机导入 TXT / MD 文本。",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(entries) { file ->
+                val isText = file.isFile && file.extension.lowercase() in BOOK_TEXT_EXTENSIONS
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = file.isDirectory || isText) {
+                            if (file.isDirectory) path = path + file.name
+                            else if (isText) editing = file
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = file.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = if (file.isDirectory) "文件夹" else formatFileSize(file.length()),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (file.isDirectory || isText) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                SettingsDivider()
+            }
+        }
+    }
+
+    editing?.let { file ->
+        BookTextEditorDialog(
+            file = file,
+            onDismiss = { editing = null },
+            onSaved = { reloadKey++ },
+        )
+    }
+}
+
+@Composable
+private fun BookTextEditorDialog(
+    file: File,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
+    val context = LocalContext.current
+    var content by remember(file) {
+        mutableStateOf(runCatching { file.readText() }.getOrDefault(""))
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(file.name) },
+        text = {
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 420.dp),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    runCatching { file.writeText(content) }
+                        .onSuccess {
+                            Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
+                            onSaved()
+                            onDismiss()
+                        }
+                        .onFailure {
+                            Toast.makeText(context, "保存失败：${it.message}", Toast.LENGTH_SHORT).show()
+                        }
+                },
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
+}
+
+private fun formatFileSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+    else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024f / 1024f)
 }

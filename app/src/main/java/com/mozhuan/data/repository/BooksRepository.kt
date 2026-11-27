@@ -208,14 +208,11 @@ class BooksRepository(
         val bookDir = File(root, bookId)
         if (!bookDir.isDirectory) error("作品目录不存在")
 
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: error("无法读取所选图片")
-        if (bytes.size > MAX_COVER_BYTES) {
-            error("图片不能超过 5MB（当前 ${String.format(java.util.Locale.US, "%.1f", bytes.size / 1024f / 1024f)}MB）")
-        }
-
+        val resolver = context.contentResolver
+        // 1) 先只读尺寸，避免把大图整体读进内存导致 OOM 闪退。
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            ?: error("无法读取所选图片")
         val width = bounds.outWidth
         val height = bounds.outHeight
         if (width <= 0 || height <= 0) error("无法识别的图片格式")
@@ -223,7 +220,16 @@ class BooksRepository(
             error("封面尺寸需为 ${COVER_WIDTH} × ${COVER_HEIGHT} 像素（当前 ${width} × ${height}）")
         }
 
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        // 2) 校验文件大小（部分提供方拿不到长度时跳过，尺寸已限制内存）。
+        val size = runCatching {
+            resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+        }.getOrNull()?.takeIf { it > 0 }
+        if (size != null && size > MAX_COVER_BYTES) {
+            error("图片不能超过 5MB（当前 ${String.format(java.util.Locale.US, "%.1f", size / 1024f / 1024f)}MB）")
+        }
+
+        // 3) 尺寸已确认，此时解码内存可控。
+        val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
             ?: error("图片解码失败")
         val coverDir = File(bookDir, ".cover").apply { mkdirs() }
         val target = File(coverDir, "cover_${System.currentTimeMillis()}.jpg")
